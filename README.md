@@ -48,29 +48,31 @@ The system is built on the following non-negotiable principles:
 
 ## Repository Structure
 
+```
 doc-manager/
 │
-├── apps/ # Executable applications
-│ ├── frontend/ # Next.js UI
-│ └── backend/ # NestJS API
+├── apps/                  # Executable applications
+│   ├── frontend/          # Next.js UI
+│   └── backend/           # NestJS API
 │
-├── infra/ # Infrastructure & persistence
-│ ├── docker/ # Dockerfiles
-│ ├── mysql/ # DB schema, seeds, migrations
-│ └── scripts/ # Infra helper scripts
+├── infra/                 # Infrastructure & persistence
+│   ├── docker/            # Dockerfiles
+│   ├── mysql/             # DB schema, seeds, migrations
+│   └── scripts/           # Infra helper scripts
 │
-├── shared/ # Cross-app contracts (NO logic)
-│ ├── permissions/ # Permission key registry
-│ ├── constants/ # App-wide constants
-│ └── types/ # Shared DTO-style types
+├── shared/                # Cross-app contracts (NO logic)
+│   ├── permissions/       # Permission key registry
+│   ├── constants/         # App-wide constants
+│   └── types/             # Shared DTO-style types
 │
-├── storage/ # Runtime file storage (mounted)
-│ └── documents/
+├── storage/               # Runtime file storage (mounted)
+│   └── documents/
 │
-├── docker-compose.yml # Root orchestration
+├── docker-compose.yml     # Root orchestration
 ├── .env.sample
 ├── .gitignore
 └── README.md
+```
 
 
 ---
@@ -114,6 +116,7 @@ Authorization follows the hierarchy:
 
 ### Example Permission Keys
 
+```
 document.upload
 document.view
 document.update
@@ -122,6 +125,7 @@ document.delete
 user.manage
 role.manage
 log.view
+```
 
 
 Backend authorization is enforced using permission guards, not role name checks.
@@ -135,10 +139,12 @@ Backend authorization is enforced using permission guards, not role name checks.
 - Frontend never accesses files directly
 - All file access is mediated by backend APIs
 
+```
 storage/documents/
 └── {document_id}/
-└── v{version}/
-└── file.ext
+    └── v{version}/
+        └── file.ext
+```
 
 
 ---
