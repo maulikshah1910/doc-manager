@@ -18,7 +18,8 @@ export const Card = React.forwardRef<HTMLDivElement, CardProps>(
       <div
         ref={ref}
         className={`
-          bg-white rounded-lg shadow-md border border-gray-200
+          bg-white dark:bg-gray-800 rounded-lg shadow-md
+          border border-gray-200 dark:border-gray-700
           ${paddingStyles[padding]}
           ${className}
         `}
@@ -39,13 +40,13 @@ export const CardHeader = ({ children, className = '', ...props }: React.HTMLAtt
 );
 
 export const CardTitle = ({ children, className = '', ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
-  <h3 className={`text-xl font-semibold text-gray-900 ${className}`} {...props}>
+  <h3 className={`text-xl font-semibold text-gray-900 dark:text-white ${className}`} {...props}>
     {children}
   </h3>
 );
 
 export const CardDescription = ({ children, className = '', ...props }: React.HTMLAttributes<HTMLParagraphElement>) => (
-  <p className={`text-sm text-gray-600 mt-1 ${className}`} {...props}>
+  <p className={`text-sm text-gray-600 dark:text-gray-400 mt-1 ${className}`} {...props}>
     {children}
   </p>
 );

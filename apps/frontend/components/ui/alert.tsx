@@ -62,7 +62,7 @@ export const Alert: React.FC<AlertProps> = ({
       role="alert"
       {...props}
     >
-      <div className="flex">
+      <div className="flex align-center items-center">
         <div className={`flex-shrink-0 ${iconStyles[variant]}`}>
           {icons[variant]}
         </div>
