@@ -1,18 +1,30 @@
+'use client';
+
+import { LoginForm } from '@/components/auth/login-form';
+import { AuthLayout } from '@/components/layout/auth-layout';
+import { login } from '@/lib/auth';
+import { useRouter } from 'next/navigation';
+
 export default function Home() {
+  const router = useRouter();
+
+  const handleLogin = async (credentials: { email: string; password: string }) => {
+    try {
+      await login(credentials);
+      // Redirect to dashboard after successful login
+      router.push('/dashboard');
+    } catch (error) {
+      // Error is handled by LoginForm component
+      throw error;
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Document Manager
-        </h1>
-        <p className="text-lg text-gray-600 mb-8">
-          Internal Document Management Platform - Phase 1
-        </p>
-        <div className="space-y-2 text-sm text-gray-500">
-          <p>Next.js Frontend Application</p>
-          <p>Status: Development Mode</p>
-        </div>
-      </div>
-    </div>
+    <AuthLayout
+      title="Document Manager"
+      subtitle="Sign in to access your documents"
+    >
+      <LoginForm onSubmit={handleLogin} />
+    </AuthLayout>
   );
 }
