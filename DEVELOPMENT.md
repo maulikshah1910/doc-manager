@@ -1,0 +1,789 @@
+# Development Guide
+
+Complete guide for developing the Internal Document Management Platform. This document contains architecture decisions, constraints, setup instructions, and development guidelines.
+
+**Audience:** Developers and AI assistants working on this project.
+
+---
+
+## Table of Contents
+
+1. [Architecture & Constraints](#architecture--constraints)
+2. [Technology Stack & Rationale](#technology-stack--rationale)
+3. [Database Setup](#database-setup)
+4. [RBAC & Authorization](#rbac--authorization)
+5. [API Design Standards](#api-design-standards)
+6. [Frontend Guidelines](#frontend-guidelines)
+7. [File Storage](#file-storage)
+8. [Testing Strategy](#testing-strategy)
+9. [Common Pitfalls](#common-pitfalls)
+
+---
+
+## Architecture & Constraints
+
+### Core Principles (NON-NEGOTIABLE)
+
+1. **Single Organization Only** - NOT multi-tenant SaaS
+   - ❌ No `organization_id`, `tenant_id`, or workspace fields
+   - ✅ All users belong to same organization implicitly
+
+2. **Backend-Enforced Security** - Frontend is UI-only
+   - ❌ No authorization logic in frontend
+   - ❌ No business calculations in frontend
+   - ✅ Backend validates everything (auth, permissions, data)
+
+3. **Database-Driven RBAC** - Permissions are data, not code
+   - ❌ No hardcoded permission enums
+   - ❌ No role name checks: `if (user.role === 'admin')`
+   - ✅ Permission checks via guards: `@RequirePermissions('document.upload')`
+
+4. **Audit by Default** - All mutations logged
+   - ❌ Cannot update or delete audit logs
+   - ✅ Every CREATE/UPDATE/DELETE generates audit entry
+   - ✅ Audit logs are append-only
+
+5. **Versioned Document Storage** - Never overwrite files
+   - ❌ No file overwrites or hard deletes
+   - ✅ New uploads create new versions
+   - ✅ Storage structure: `{doc_id}/v{version}/file.ext`
+
+6. **Soft Deletes Only** - Deletion is recoverable
+   - ❌ No hard deletes (`DELETE FROM table`)
+   - ✅ Use `deleted_at TIMESTAMP NULL`
+   - ✅ Filter queries: `WHERE deleted_at IS NULL`
+
+### Phase-1 Exclusions
+
+**The following are FORBIDDEN in Phase-1:**
+
+- ❌ AI/GenAI features (vector DBs, embeddings, RAG, chatbots)
+- ❌ Multi-organization/multi-tenant support
+- ❌ External storage (S3, GCS, Azure Blob)
+- ❌ Social login (OAuth, SAML, SSO)
+- ❌ Real-time features (WebSockets, SSE)
+- ❌ Email notifications
+- ❌ Public API access
+
+---
+
+## Technology Stack & Rationale
+
+### Backend: NestJS
+
+**Why?**
+- Built-in dependency injection
+- Decorator-based RBAC guards
+- TypeScript-first with excellent type safety
+- Modular structure scales well
+
+**Requirements:**
+- Use NestJS decorators (`@Injectable`, `@Controller`, `@Module`)
+- TypeScript strict mode enabled
+- No `any` types (use `unknown` if needed)
+
+### Frontend: Next.js (App Router)
+
+**Why?**
+- Server-side rendering for better performance
+- React Server Components reduce bundle size
+- File-based routing simplifies navigation
+
+**Requirements:**
+- Use App Router (NOT Pages Router)
+- Default to Server Components
+- Use Client Components only for interactivity
+
+### Database: MySQL 8.0+
+
+**Why?**
+- Relational model fits RBAC perfectly
+- ACID transactions ensure data integrity
+- Team expertise with MySQL
+
+**Requirements:**
+- All schema changes via migrations
+- Use TypeORM for queries
+- No raw SQL with user input (SQL injection prevention)
+
+### Authentication: JWT
+
+**Why?**
+- Stateless authentication scales horizontally
+- Access token in Authorization header
+- Refresh token rotation for security
+
+**Implementation:**
+- Access token expiry: 15 minutes
+- Refresh token expiry: 7 days
+- Refresh token in httpOnly cookie (XSS protection)
+- Access token in memory (frontend)
+
+---
+
+## Database Setup
+
+### Quick Start (3 Commands)
+
+```bash
+# 1. Create environment file
+cp .env.sample .env
+
+# 2. Run automated setup
+./infra/scripts/db-setup.sh
+
+# 3. Verify setup
+./infra/scripts/migrate.sh status
+```
+
+### MySQL Connection
+
+**From Host Machine:**
+```bash
+mysql -h localhost -P 3306 -u doc_user -pdoc_password doc_manager
+```
+
+**From Docker:**
+```bash
+docker exec -it doc-manager-mysql mysql -u root -proot_password doc_manager
+```
+
+**From Backend (NestJS):**
+```typescript
+{
+  type: 'mysql',
+  host: 'mysql',        // Service name in docker-compose.yml
+  port: 3306,
+  database: 'doc_manager',
+  username: 'doc_user',
+  password: 'doc_password',
+  synchronize: false,   // Use migrations, not auto-sync
+}
+```
+
+### Migration Commands
+
+| Command | Description |
+|---------|-------------|
+| `./infra/scripts/migrate.sh up` | Run pending migrations |
+| `./infra/scripts/migrate.sh down` | Rollback last batch |
+| `./infra/scripts/migrate.sh status` | Show migration state |
+| `./infra/scripts/migrate.sh fresh` | Drop all & re-run (dev only) |
+
+### Migration File Structure
+
+Every migration has TWO files:
+
+**Forward:** `YYYYMMDD_NNN_description.sql`
+```sql
+CREATE TABLE users (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP NULL
+);
+```
+
+**Rollback:** `YYYYMMDD_NNN_rollback_description.sql`
+```sql
+DROP TABLE IF EXISTS users;
+```
+
+### Current Database Schema
+
+**Users Table:**
+```sql
+users (
+    id              BIGINT UNSIGNED PK AUTO_INCREMENT
+    first_name      VARCHAR(100) NOT NULL
+    last_name       VARCHAR(100) NOT NULL
+    email           VARCHAR(255) NOT NULL UNIQUE
+    password        VARCHAR(255) NOT NULL (bcrypt hashed)
+    profile_image   VARCHAR(500) NULL
+    status          ENUM('active','inactive','suspended','pending')
+    created_at      TIMESTAMP
+    updated_at      TIMESTAMP
+    deleted_at      TIMESTAMP NULL
+)
+```
+
+---
+
+## RBAC & Authorization
+
+### Database Model
+
+```
+users ↔ user_roles ↔ roles ↔ role_permissions ↔ permissions
+```
+
+**Schema:**
+```sql
+users           (id, email, password_hash, ...)
+user_roles      (user_id, role_id)
+roles           (id, name, description)
+role_permissions(role_id, permission_id)
+permissions     (id, key, description)
+```
+
+### Permission Keys
+
+Format: `resource.action`
+
+**Examples:**
+- `document.upload`
+- `document.view`
+- `document.update`
+- `document.delete`
+- `user.manage`
+- `role.manage`
+- `log.view`
+
+**Wildcards:**
+- `document.*` - All document permissions
+- `*` - All permissions (super admin)
+
+### JWT Payload Structure
+
+**Access Token:**
+```json
+{
+  "sub": "user-123",
+  "email": "user@example.com",
+  "roles": ["manager", "hr"],
+  "permissions": [
+    "document.upload",
+    "document.view",
+    "user.view"
+  ],
+  "iat": 1735737600,
+  "exp": 1735738500
+}
+```
+
+**Refresh Token:**
+```json
+{
+  "sub": "user-123",
+  "sessionId": "session-abc-456",
+  "iat": 1735737600,
+  "exp": 1736342400
+}
+```
+
+### Permission Guard Implementation
+
+**Backend (NestJS):**
+```typescript
+@Controller('documents')
+export class DocumentsController {
+  @Post()
+  @RequirePermissions('document.upload')
+  async uploadDocument(@Body() dto: UploadDocumentDto) {
+    return this.documentsService.upload(dto);
+  }
+
+  @Delete(':id')
+  @RequirePermissions('document.delete')
+  async deleteDocument(@Param('id') id: string) {
+    return this.documentsService.delete(id);
+  }
+}
+```
+
+**Frontend (Permission-based UI):**
+```typescript
+'use client';
+
+export function DocumentActions({ documentId }) {
+  const permissions = usePermissions();
+
+  return (
+    <div>
+      {hasPermission(permissions, 'document.view') && (
+        <button onClick={() => download(documentId)}>Download</button>
+      )}
+
+      {hasPermission(permissions, 'document.delete') && (
+        <button onClick={() => deleteDoc(documentId)}>Delete</button>
+      )}
+    </div>
+  );
+}
+```
+
+**IMPORTANT:** Frontend permission checks are UI-only (UX optimization). Backend ALWAYS validates permissions.
+
+---
+
+## API Design Standards
+
+### RESTful Endpoints
+
+```
+# Collection operations
+GET    /api/v1/documents           → List documents (paginated)
+POST   /api/v1/documents           → Upload document
+
+# Resource operations
+GET    /api/v1/documents/{id}      → Get document metadata
+PATCH  /api/v1/documents/{id}      → Update metadata
+DELETE /api/v1/documents/{id}      → Soft delete
+
+# Sub-resources
+GET    /api/v1/documents/{id}/versions
+GET    /api/v1/documents/{id}/download
+
+# Authentication
+POST   /api/v1/auth/login
+POST   /api/v1/auth/refresh
+POST   /api/v1/auth/logout
+```
+
+### Response Format
+
+**Success:**
+```json
+{
+  "data": {
+    "id": "abc-123",
+    "title": "Employee Handbook"
+  },
+  "meta": {
+    "timestamp": "2026-01-01T12:00:00Z"
+  }
+}
+```
+
+**List (with pagination):**
+```json
+{
+  "data": [
+    { "id": "doc-1", "title": "..." },
+    { "id": "doc-2", "title": "..." }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 100,
+    "totalPages": 5
+  }
+}
+```
+
+**Error:**
+```json
+{
+  "statusCode": 400,
+  "message": "Validation failed",
+  "errors": [
+    "email: must be a valid email",
+    "password: must be at least 8 characters"
+  ],
+  "timestamp": "2026-01-01T12:00:00Z"
+}
+```
+
+### HTTP Status Codes
+
+| Code | Use Case |
+|------|----------|
+| 200 | Success |
+| 201 | Created |
+| 400 | Bad Request (validation error) |
+| 401 | Unauthorized (invalid/missing token) |
+| 403 | Forbidden (lacks permission) |
+| 404 | Not Found |
+| 409 | Conflict (email already exists) |
+| 422 | Unprocessable Entity (business rule violation) |
+| 500 | Internal Server Error |
+
+**Never expose in errors:**
+- Stack traces (production)
+- Database error details
+- Internal file paths
+- Secrets or tokens
+
+### Pagination
+
+**Query Parameters:**
+```
+GET /api/v1/documents?page=2&limit=20&sort=created_at&order=desc
+```
+
+**Parameters:**
+- `page`: Page number (default: 1)
+- `limit`: Items per page (default: 20, max: 100)
+- `sort`: Field to sort by (default: `created_at`)
+- `order`: `asc` or `desc` (default: `desc`)
+
+---
+
+## Frontend Guidelines
+
+### Server vs Client Components
+
+**Server Components (Default):**
+- Data fetching from backend API
+- Static layouts and pages
+- No user interactivity
+
+**Client Components (`'use client'`):**
+- Forms with input fields
+- Click handlers, event listeners
+- State management (`useState`, `useReducer`)
+- Browser APIs
+
+**Example:**
+```typescript
+// app/documents/page.tsx (Server Component)
+export default async function DocumentsPage() {
+  const documents = await fetch('http://backend/api/v1/documents')
+    .then(r => r.json());
+
+  return (
+    <div>
+      <h1>Documents</h1>
+      <DocumentList documents={documents.data} />
+      <UploadButton />  {/* Client Component */}
+    </div>
+  );
+}
+
+// components/upload-button.tsx (Client Component)
+'use client';
+
+export function UploadButton() {
+  const [isOpen, setIsOpen] = useState(false);
+  return <button onClick={() => setIsOpen(true)}>Upload</button>;
+}
+```
+
+### API Client
+
+**Centralized client with interceptors:**
+
+```typescript
+// lib/api-client.ts
+import axios from 'axios';
+
+const apiClient = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
+  timeout: 30000
+});
+
+// Add access token to requests
+apiClient.interceptors.request.use(config => {
+  const token = getAccessToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Auto-refresh on 401
+apiClient.interceptors.response.use(
+  response => response,
+  async error => {
+    if (error.response?.status === 401 && !error.config._retry) {
+      error.config._retry = true;
+      const { data } = await axios.post('/api/v1/auth/refresh');
+      setAccessToken(data.accessToken);
+      error.config.headers.Authorization = `Bearer ${data.accessToken}`;
+      return apiClient(error.config);
+    }
+    return Promise.reject(error);
+  }
+);
+```
+
+### State Management
+
+| State Type | Storage | Example |
+|------------|---------|---------|
+| Server state | Fetch from API | Document list, user profile |
+| UI state | `useState` | Modal open/closed, form inputs |
+| Global UI state | React Context | Theme, sidebar collapsed |
+| Auth state | Memory + httpOnly cookie | Access token, user info |
+
+**Avoid:** Redux/MobX in Phase-1 (overkill for this scope)
+
+---
+
+## File Storage
+
+### Upload Flow
+
+1. Frontend sends multipart/form-data
+2. Backend validates file size (<50MB)
+3. Backend validates MIME type from content
+4. Backend generates UUID for document
+5. Backend creates directory: `/storage/documents/{uuid}/v1/`
+6. Backend saves file
+7. Backend creates database records
+8. Backend logs upload to audit table
+9. Backend returns document metadata
+
+**Implementation:**
+```typescript
+@Post()
+@UseInterceptors(FileInterceptor('file'))
+@RequirePermissions('document.upload')
+async uploadDocument(
+  @UploadedFile() file: Express.Multer.File,
+  @Body() dto: UploadDocumentDto,
+  @CurrentUser() user: User
+) {
+  this.validateFileSize(file);
+  this.validateMimeType(file);
+
+  const documentId = uuid();
+  const filePath = await this.storageService.save(documentId, 1, file);
+
+  const document = await this.documentsService.create({
+    id: documentId,
+    title: dto.title,
+    uploaded_by: user.id
+  });
+
+  await this.auditService.log({
+    user_id: user.id,
+    action: 'CREATE',
+    resource_type: 'document',
+    resource_id: documentId
+  });
+
+  return { data: document };
+}
+```
+
+### Download Flow
+
+1. Frontend requests `/api/v1/documents/{id}/download`
+2. Backend validates `document.view` permission
+3. Backend fetches file path from database
+4. Backend logs access to audit table
+5. Backend streams file with headers
+
+**Implementation:**
+```typescript
+@Get(':id/download')
+@RequirePermissions('document.view')
+async downloadDocument(
+  @Param('id') id: string,
+  @CurrentUser() user: User,
+  @Res() response: Response
+) {
+  const document = await this.documentsService.findOne(id);
+  const version = await this.documentVersionsService.findVersion(id, document.current_version);
+
+  await this.auditService.log({
+    user_id: user.id,
+    action: 'ACCESS',
+    resource_type: 'document',
+    resource_id: id
+  });
+
+  const fileStream = createReadStream(version.file_path);
+  response.set({
+    'Content-Type': version.mime_type,
+    'Content-Disposition': `attachment; filename="${version.filename}"`,
+    'Content-Length': version.file_size
+  });
+
+  fileStream.pipe(response);
+}
+```
+
+### Security
+
+**Filename Sanitization:**
+```typescript
+function sanitizeFilename(filename: string): string {
+  return filename
+    .replace(/\.\./g, '')         // Remove ".."
+    .replace(/[\/\\]/g, '')       // Remove slashes
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .substring(0, 255);
+}
+```
+
+**MIME Type Validation:**
+```typescript
+async function validateMimeType(file: Express.Multer.File) {
+  const detectedType = await fileType.fromBuffer(file.buffer);
+
+  const allowedTypes = [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/png',
+    'image/jpeg',
+    'text/plain'
+  ];
+
+  if (!detectedType || !allowedTypes.includes(detectedType.mime)) {
+    throw new BadRequestException('Invalid file type');
+  }
+}
+```
+
+---
+
+## Testing Strategy
+
+### Coverage Requirements
+
+- Backend services: 80%
+- Backend controllers: 70%
+- Frontend components: 50%
+
+### Backend Testing
+
+**Unit Tests:**
+```typescript
+describe('DocumentsService', () => {
+  it('should create a document', async () => {
+    const dto = { title: 'Test Doc', uploadedBy: 'user-123' };
+    const result = await service.create(dto);
+    expect(result.title).toBe('Test Doc');
+  });
+});
+```
+
+**Integration Tests:**
+```typescript
+describe('DocumentsController (e2e)', () => {
+  it('POST /documents - should upload document', () => {
+    return request(app.getHttpServer())
+      .post('/api/v1/documents')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .attach('file', './test/fixtures/test.pdf')
+      .field('title', 'Test Document')
+      .expect(201);
+  });
+
+  it('should return 403 without permission', () => {
+    return request(app.getHttpServer())
+      .delete('/api/v1/documents/doc-123')
+      .set('Authorization', `Bearer ${tokenWithoutPermission}`)
+      .expect(403);
+  });
+});
+```
+
+---
+
+## Common Pitfalls
+
+### ❌ DON'T: Check Role Names
+
+```typescript
+// WRONG
+if (user.role.name === 'admin') {
+  allowAccess();
+}
+
+// CORRECT
+@RequirePermissions('document.delete')
+deleteDocument() {
+  // Permission guard handles authorization
+}
+```
+
+### ❌ DON'T: Put Business Logic in Frontend
+
+```typescript
+// WRONG (Frontend)
+const total = items.reduce((sum, item) =>
+  sum + (item.price * item.quantity * (1 - item.discount)), 0
+);
+
+// CORRECT (Backend endpoint)
+GET /api/v1/cart/total → { "total": 99.99 }
+```
+
+### ❌ DON'T: Store Tokens in localStorage
+
+```typescript
+// WRONG
+localStorage.setItem('refreshToken', token);  // Vulnerable to XSS
+
+// CORRECT
+response.cookie('refreshToken', token, {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'strict'
+});
+```
+
+### ❌ DON'T: Hard Delete
+
+```typescript
+// WRONG
+await this.documentsRepository.delete(id);
+
+// CORRECT
+await this.documentsRepository.update(id, { deleted_at: new Date() });
+```
+
+---
+
+## Environment Configuration
+
+### Required Variables (`.env.sample`)
+
+```bash
+# Database
+DB_HOST=mysql
+DB_PORT=3306
+DB_DATABASE=doc_manager
+DB_USER=doc_user
+DB_PASSWORD=CHANGE_ME
+
+# JWT
+JWT_SECRET=CHANGE_ME_RANDOM_SECRET
+JWT_ACCESS_EXPIRY=15m
+JWT_REFRESH_EXPIRY=7d
+
+# Storage
+STORAGE_PATH=/app/storage/documents
+MAX_FILE_SIZE=52428800
+
+# URLs
+FRONTEND_URL=http://localhost:3000
+BACKEND_URL=http://localhost:4000
+
+# Environment
+NODE_ENV=development
+```
+
+---
+
+## Quick Decision Framework
+
+Before implementing ANY feature, ask:
+
+1. ✅ Does it violate constraints? → **REJECT if yes**
+2. ✅ Is it on Phase-1 Exclusion list? → **DEFER if yes**
+3. ✅ Where does logic belong? → **Backend if business logic**
+4. ✅ What permissions needed? → **Add to database first**
+5. ✅ Does it change schema? → **Create migration first**
+6. ✅ How to test? → **Unit + integration tests**
+
+**When in doubt:**
+- Security enforcement → Backend
+- UI rendering → Frontend
+- Data transformation → Backend
+- User interaction → Frontend
+- RBAC checks → Permission guards (never role names)
+
+---
+
+## Document Maintenance
+
+**Version:** 1.0.0 (Phase-1)
+**Last Updated:** 2026-01-03
+**Audience:** Developers and AI assistants
+
+For project overview and repository structure, see [README.md](README.md).
