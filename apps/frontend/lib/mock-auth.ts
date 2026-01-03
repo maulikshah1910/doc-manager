@@ -13,6 +13,7 @@ import { User } from './types';
 // Mock user database (parsed from credentials.csv)
 const MOCK_USERS = [
   { email: 'admin@example.com', password: 'Admin123', roles: ['admin'], permissions: ['*'] },
+  { email: 'maulik@example.com', password: 'maulik123', roles: ['admin'], permissions: ['*'] },
   { email: 'manager@example.com', password: 'Manager123', roles: ['manager'], permissions: ['document.*', 'user.view', 'log.view'] },
   { email: 'employee@example.com', password: 'Employee123', roles: ['employee'], permissions: ['document.view', 'document.upload'] },
   { email: 'john.doe@example.com', password: 'John1234', roles: ['employee'], permissions: ['document.view', 'document.upload'] },

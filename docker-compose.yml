@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: doc-manager-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${DB_DATABASE:-doc_manager}
+      MYSQL_USER: ${DB_USER:-doc_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-doc_password}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      # Persist database data
+      - mysql_data:/var/lib/mysql
+      # Mount migration files for easy access
+      - ./infra/mysql/migrations:/docker-entrypoint-initdb.d:ro
+      # MySQL configuration
+      - ./infra/docker/mysql/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+    networks:
+      - doc-manager-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-root_password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Backend API (NestJS) - To be configured later
+  # backend:
+  #   build:
+  #     context: ./apps/backend
+  #     dockerfile: ../../infra/docker/backend/Dockerfile
+  #   container_name: doc-manager-backend
+  #   restart: unless-stopped
+  #   environment:
+  #     DB_HOST: mysql
+  #     DB_PORT: 3306
+  #     DB_DATABASE: ${DB_DATABASE:-doc_manager}
+  #     DB_USER: ${DB_USER:-doc_user}
+  #     DB_PASSWORD: ${DB_PASSWORD:-doc_password}
+  #   ports:
+  #     - "${BACKEND_PORT:-4000}:4000"
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #   networks:
+  #     - doc-manager-network
+  #   volumes:
+  #     - ./storage:/app/storage
+
+  # Frontend (Next.js) - To be configured later
+  # frontend:
+  #   build:
+  #     context: ./apps/frontend
+  #     dockerfile: ../../infra/docker/frontend/Dockerfile
+  #   container_name: doc-manager-frontend
+  #   restart: unless-stopped
+  #   environment:
+  #     NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+  #   ports:
+  #     - "${FRONTEND_PORT:-3000}:3000"
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - doc-manager-network
+
+networks:
+  doc-manager-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local

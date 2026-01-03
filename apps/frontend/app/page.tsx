@@ -2,6 +2,7 @@
 
 import { LoginForm } from '@/components/auth/login-form';
 import { AuthLayout } from '@/components/layout/auth-layout';
+import { LightThemeWrapper } from '@/components/layout/light-theme-wrapper';
 import { login } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 
@@ -20,11 +21,13 @@ export default function Home() {
   };
 
   return (
-    <AuthLayout
-      title="Document Manager"
-      subtitle="Sign in to access your documents"
-    >
-      <LoginForm onSubmit={handleLogin} />
-    </AuthLayout>
+    <LightThemeWrapper>
+      <AuthLayout
+        title="Document Manager"
+        subtitle="Sign in to access your documents"
+      >
+        <LoginForm onSubmit={handleLogin} />
+      </AuthLayout>
+    </LightThemeWrapper>
   );
 }

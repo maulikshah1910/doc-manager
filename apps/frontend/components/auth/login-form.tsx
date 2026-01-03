@@ -87,7 +87,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit }) => {
         disabled={isLoading}
       />
 
-      <div className="flex items-center justify-between">
+      {/* <div className="flex items-center justify-between">
         <div className="flex items-center">
           <input
             id="remember-me"
@@ -106,7 +106,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit }) => {
             Forgot password?
           </a>
         </div>
-      </div>
+      </div> */}
 
       <Button
         type="submit"
