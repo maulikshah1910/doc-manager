@@ -1,0 +1,17 @@
+{
+  "name": "doc-manager",
+  "version": "1.0.0",
+  "description": "Internal Document Management Platform",
+  "private": true,
+  "scripts": {
+    "db:setup": "./infra/scripts/db-setup.sh",
+    "db:migrate": "./infra/scripts/migrate.sh up",
+    "db:migrate:down": "./infra/scripts/migrate.sh down",
+    "db:migrate:status": "./infra/scripts/migrate.sh status",
+    "db:seed": "./infra/scripts/seed.sh",
+    "password:hash": "node infra/scripts/generate-password-hash.js"
+  },
+  "devDependencies": {
+    "bcryptjs": "^2.4.3"
+  }
+}

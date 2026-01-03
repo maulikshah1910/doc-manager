@@ -11,15 +11,16 @@ if [ -f .env ]; then
 fi
 
 # Database configuration
+USE_DOCKER="${USE_DOCKER:-false}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-3306}"
 DB_DATABASE="${DB_DATABASE:-doc_manager}"
 DB_USER="${DB_USER:-doc_user}"
 DB_PASSWORD="${DB_PASSWORD:-doc_password}"
 DB_ROOT_PASSWORD="${DB_ROOT_PASSWORD:-root_password}"
+CONTAINER_NAME="${DB_CONTAINER_NAME:-doc-manager-mysql}"
 
 MIGRATIONS_DIR="infra/mysql/migrations"
-CONTAINER_NAME="doc-manager-mysql"
 
 # Colors for output
 RED='\033[0;31m'
@@ -45,37 +46,64 @@ log_error() {
     echo -e "${RED}✗${NC} $1"
 }
 
-# Check if Docker container is running
+# Check if Docker container is running (only when USE_DOCKER=true)
 check_container() {
-    if ! docker ps | grep -q "$CONTAINER_NAME"; then
-        log_error "MySQL container '$CONTAINER_NAME' is not running"
-        log_info "Start it with: docker-compose up -d mysql"
-        exit 1
+    if [ "$USE_DOCKER" = "true" ]; then
+        if ! docker ps | grep -q "$CONTAINER_NAME"; then
+            log_error "MySQL container '$CONTAINER_NAME' is not running"
+            log_info "Start it with: docker-compose up -d mysql"
+            exit 1
+        fi
+    else
+        # Check if MySQL is accessible for local/RDS connections
+        if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "SELECT 1;" 2>/dev/null; then
+            log_error "Cannot connect to MySQL at $DB_HOST:$DB_PORT"
+            log_info "Please check your database connection settings in .env"
+            exit 1
+        fi
     fi
 }
 
-# Execute SQL file in Docker container
+# Execute SQL file
 execute_sql_file() {
     local sql_file=$1
-    docker exec -i "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" < "$sql_file"
+    if [ "$USE_DOCKER" = "true" ]; then
+        docker exec -i "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" < "$sql_file"
+    else
+        mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_DATABASE" < "$sql_file"
+    fi
 }
 
-# Execute SQL command in Docker container
+# Execute SQL command
 execute_sql_command() {
     local sql_command=$1
-    docker exec -i "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -e "$sql_command"
+    if [ "$USE_DOCKER" = "true" ]; then
+        docker exec -i "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -e "$sql_command"
+    else
+        mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_DATABASE" -e "$sql_command"
+    fi
 }
 
 # Get next batch number
 get_next_batch() {
-    local batch=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SELECT COALESCE(MAX(batch), 0) + 1 FROM _migrations;" 2>/dev/null || echo "1")
+    local batch
+    if [ "$USE_DOCKER" = "true" ]; then
+        batch=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SELECT COALESCE(MAX(batch), 0) + 1 FROM _migrations;" 2>/dev/null || echo "1")
+    else
+        batch=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_DATABASE" -sN -e "SELECT COALESCE(MAX(batch), 0) + 1 FROM _migrations;" 2>/dev/null || echo "1")
+    fi
     echo "$batch"
 }
 
 # Check if migration has been run
 is_migration_executed() {
     local migration_name=$1
-    local count=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SELECT COUNT(*) FROM _migrations WHERE migration_name = '$migration_name';" 2>/dev/null || echo "0")
+    local count
+    if [ "$USE_DOCKER" = "true" ]; then
+        count=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SELECT COUNT(*) FROM _migrations WHERE migration_name = '$migration_name';" 2>/dev/null || echo "0")
+    else
+        count=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_DATABASE" -sN -e "SELECT COUNT(*) FROM _migrations WHERE migration_name = '$migration_name';" 2>/dev/null || echo "0")
+    fi
     [ "$count" -gt 0 ]
 }
 
@@ -137,7 +165,12 @@ migrate_down() {
     check_container
 
     # Get last batch number
-    local last_batch=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SELECT MAX(batch) FROM _migrations;" 2>/dev/null || echo "0")
+    local last_batch
+    if [ "$USE_DOCKER" = "true" ]; then
+        last_batch=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SELECT MAX(batch) FROM _migrations;" 2>/dev/null || echo "0")
+    else
+        last_batch=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_DATABASE" -sN -e "SELECT MAX(batch) FROM _migrations;" 2>/dev/null || echo "0")
+    fi
 
     if [ "$last_batch" = "0" ] || [ -z "$last_batch" ]; then
         log_info "No migrations to rollback"
@@ -147,7 +180,12 @@ migrate_down() {
     log_info "Rolling back batch $last_batch..."
 
     # Get migrations in last batch (reverse order)
-    local migrations=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SELECT migration_name FROM _migrations WHERE batch = $last_batch ORDER BY id DESC;")
+    local migrations
+    if [ "$USE_DOCKER" = "true" ]; then
+        migrations=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SELECT migration_name FROM _migrations WHERE batch = $last_batch ORDER BY id DESC;")
+    else
+        migrations=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_DATABASE" -sN -e "SELECT migration_name FROM _migrations WHERE batch = $last_batch ORDER BY id DESC;")
+    fi
 
     while IFS= read -r migration_name; do
         if [ -z "$migration_name" ]; then
@@ -182,14 +220,25 @@ migrate_status() {
     check_container
 
     # Check if migrations table exists
-    if ! docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -e "SHOW TABLES LIKE '_migrations';" 2>/dev/null | grep -q "_migrations"; then
+    local table_exists
+    if [ "$USE_DOCKER" = "true" ]; then
+        table_exists=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -e "SHOW TABLES LIKE '_migrations';" 2>/dev/null | grep -c "_migrations" || echo "0")
+    else
+        table_exists=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SHOW TABLES LIKE '_migrations';" 2>/dev/null | grep -c "_migrations" || echo "0")
+    fi
+
+    if [ "$table_exists" = "0" ]; then
         log_warning "Migrations table does not exist. Run './infra/scripts/migrate.sh up' first."
         return
     fi
 
     echo ""
     echo "Executed migrations:"
-    docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -e "SELECT id, migration_name, batch, executed_at FROM _migrations ORDER BY id;"
+    if [ "$USE_DOCKER" = "true" ]; then
+        docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -e "SELECT id, migration_name, batch, executed_at FROM _migrations ORDER BY id;"
+    else
+        mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT id, migration_name, batch, executed_at FROM _migrations ORDER BY id;"
+    fi
 
     echo ""
     echo "Pending migrations:"
@@ -227,7 +276,12 @@ migrate_fresh() {
     log_info "Dropping all tables..."
 
     # Get all tables and drop them
-    tables=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SHOW TABLES;")
+    local tables
+    if [ "$USE_DOCKER" = "true" ]; then
+        tables=$(docker exec "$CONTAINER_NAME" mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_DATABASE" -sN -e "SHOW TABLES;")
+    else
+        tables=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_DATABASE" -sN -e "SHOW TABLES;")
+    fi
 
     if [ -n "$tables" ]; then
         execute_sql_command "SET FOREIGN_KEY_CHECKS = 0;"

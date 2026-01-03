@@ -34,62 +34,106 @@ fi
 # Load environment variables
 export $(cat .env | grep -v '^#' | xargs)
 
-echo ""
-
-# Step 2: Check Docker
-echo -e "${BLUE}[Step 2/5]${NC} Checking Docker..."
-if ! command -v docker &> /dev/null; then
-    echo -e "${RED}✗${NC} Docker is not installed"
-    echo -e "${BLUE}ℹ${NC} Please install Docker: https://docs.docker.com/get-docker/"
-    exit 1
-fi
-
-if ! docker ps &> /dev/null; then
-    echo -e "${RED}✗${NC} Docker daemon is not running"
-    echo -e "${BLUE}ℹ${NC} Please start Docker and try again"
-    exit 1
-fi
-
-echo -e "${GREEN}✓${NC} Docker is running"
-echo ""
-
-# Step 3: Start MySQL Container
-echo -e "${BLUE}[Step 3/5]${NC} Starting MySQL container..."
-
-if docker ps | grep -q "doc-manager-mysql"; then
-    echo -e "${YELLOW}⚠${NC} MySQL container already running"
-else
-    echo -e "${BLUE}ℹ${NC} Starting MySQL with docker-compose..."
-    docker-compose up -d mysql
-    echo -e "${GREEN}✓${NC} MySQL container started"
-fi
+USE_DOCKER="${USE_DOCKER:-false}"
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-3306}"
+DB_USER="${DB_USER:-root}"
+DB_PASSWORD="${DB_PASSWORD:-}"
 
 echo ""
 
-# Step 4: Wait for MySQL to be ready
-echo -e "${BLUE}[Step 4/5]${NC} Waiting for MySQL to be ready..."
-
-MAX_RETRIES=30
-RETRY_COUNT=0
-
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if docker exec doc-manager-mysql mysqladmin ping -u root -p"${DB_ROOT_PASSWORD:-root_password}" --silent 2>/dev/null; then
-        echo -e "${GREEN}✓${NC} MySQL is ready"
-        break
+if [ "$USE_DOCKER" = "true" ]; then
+    # Docker-based setup
+    # Step 2: Check Docker
+    echo -e "${BLUE}[Step 2/5]${NC} Checking Docker..."
+    if ! command -v docker &> /dev/null; then
+        echo -e "${RED}✗${NC} Docker is not installed"
+        echo -e "${BLUE}ℹ${NC} Please install Docker: https://docs.docker.com/get-docker/"
+        exit 1
     fi
 
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-    echo -n "."
-    sleep 1
-done
+    if ! docker ps &> /dev/null; then
+        echo -e "${RED}✗${NC} Docker daemon is not running"
+        echo -e "${BLUE}ℹ${NC} Please start Docker and try again"
+        exit 1
+    fi
 
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo -e "\n${RED}✗${NC} MySQL failed to start within expected time"
-    echo -e "${BLUE}ℹ${NC} Check logs with: docker-compose logs mysql"
-    exit 1
+    echo -e "${GREEN}✓${NC} Docker is running"
+    echo ""
+
+    # Step 3: Start MySQL Container
+    echo -e "${BLUE}[Step 3/5]${NC} Starting MySQL container..."
+
+    if docker ps | grep -q "${DB_CONTAINER_NAME:-doc-manager-mysql}"; then
+        echo -e "${YELLOW}⚠${NC} MySQL container already running"
+    else
+        echo -e "${BLUE}ℹ${NC} Starting MySQL with docker-compose..."
+        docker-compose up -d mysql
+        echo -e "${GREEN}✓${NC} MySQL container started"
+    fi
+
+    echo ""
+
+    # Step 4: Wait for MySQL to be ready
+    echo -e "${BLUE}[Step 4/5]${NC} Waiting for MySQL to be ready..."
+
+    MAX_RETRIES=30
+    RETRY_COUNT=0
+
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        if docker exec "${DB_CONTAINER_NAME:-doc-manager-mysql}" mysqladmin ping -u root -p"${DB_ROOT_PASSWORD:-root_password}" --silent 2>/dev/null; then
+            echo -e "${GREEN}✓${NC} MySQL is ready"
+            break
+        fi
+
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        echo -n "."
+        sleep 1
+    done
+
+    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+        echo -e "\n${RED}✗${NC} MySQL failed to start within expected time"
+        echo -e "${BLUE}ℹ${NC} Check logs with: docker-compose logs mysql"
+        exit 1
+    fi
+
+    echo ""
+else
+    # Local MySQL or RDS setup
+    # Step 2: Check MySQL CLI
+    echo -e "${BLUE}[Step 2/5]${NC} Checking MySQL client..."
+    if ! command -v mysql &> /dev/null; then
+        echo -e "${RED}✗${NC} MySQL client is not installed"
+        echo -e "${BLUE}ℹ${NC} Please install MySQL client"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓${NC} MySQL client is available"
+    echo ""
+
+    # Step 3: Check MySQL Connection
+    echo -e "${BLUE}[Step 3/5]${NC} Checking MySQL connection..."
+    if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "SELECT 1;" 2>/dev/null; then
+        echo -e "${GREEN}✓${NC} MySQL connection successful"
+    else
+        echo -e "${RED}✗${NC} Cannot connect to MySQL at $DB_HOST:$DB_PORT"
+        echo -e "${BLUE}ℹ${NC} Please check your database connection settings in .env"
+        exit 1
+    fi
+
+    echo ""
+
+    # Step 4: Ensure database exists
+    echo -e "${BLUE}[Step 4/5]${NC} Ensuring database exists..."
+    if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${DB_DATABASE:-doc_manager};" 2>/dev/null; then
+        echo -e "${GREEN}✓${NC} Database '${DB_DATABASE:-doc_manager}' is ready"
+    else
+        echo -e "${RED}✗${NC} Failed to create/verify database"
+        exit 1
+    fi
+
+    echo ""
 fi
-
-echo ""
 
 # Step 5: Run Migrations
 echo -e "${BLUE}[Step 5/5]${NC} Running database migrations..."
@@ -113,10 +157,17 @@ echo "  Password: ${DB_PASSWORD:-doc_password}"
 echo ""
 echo -e "${GREEN}Useful Commands:${NC}"
 echo "  View migration status:  ./infra/scripts/migrate.sh status"
-echo "  Connect to MySQL:       docker exec -it doc-manager-mysql mysql -u root -p${DB_ROOT_PASSWORD:-root_password} ${DB_DATABASE:-doc_manager}"
-echo "  View MySQL logs:        docker-compose logs -f mysql"
-echo "  Stop MySQL:             docker-compose stop mysql"
-echo "  Restart MySQL:          docker-compose restart mysql"
+if [ "$USE_DOCKER" = "true" ]; then
+    echo "  Connect to MySQL:       docker exec -it ${DB_CONTAINER_NAME:-doc-manager-mysql} mysql -u root -p${DB_ROOT_PASSWORD:-root_password} ${DB_DATABASE:-doc_manager}"
+    echo "  View MySQL logs:        docker-compose logs -f mysql"
+    echo "  Stop MySQL:             docker-compose stop mysql"
+    echo "  Restart MySQL:          docker-compose restart mysql"
+else
+    echo "  Connect to MySQL:       mysql -h${DB_HOST} -P${DB_PORT} -u${DB_USER} -p ${DB_DATABASE:-doc_manager}"
+    echo "  Run migrations:         ./infra/scripts/migrate.sh up"
+    echo "  Rollback migrations:    ./infra/scripts/migrate.sh down"
+    echo "  Seed database:          ./infra/scripts/seed.sh"
+fi
 
 echo ""
 echo -e "${BLUE}Next Steps:${NC}"

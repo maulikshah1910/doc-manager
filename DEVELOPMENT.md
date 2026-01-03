@@ -123,41 +123,106 @@ Complete guide for developing the Internal Document Management Platform. This do
 
 ## Database Setup
 
-### Quick Start (3 Commands)
+### Deployment Modes
 
+The database setup supports **three deployment modes**:
+
+1. **Local MySQL** - MySQL installed directly on your machine
+2. **Docker MySQL** - MySQL running in a Docker container
+3. **Remote MySQL** - AWS RDS, Cloud SQL, or any remote MySQL instance
+
+### Configuration
+
+Set your deployment mode in `.env`:
+
+```bash
+# Set to 'true' for Docker, 'false' for local MySQL or RDS
+USE_DOCKER=false
+
+DB_HOST=localhost              # Or your RDS endpoint
+DB_PORT=3306
+DB_DATABASE=doc_manager
+DB_USER=root
+DB_PASSWORD=your_password
+DB_ROOT_PASSWORD=your_password
+
+# Docker container name (only used when USE_DOCKER=true)
+DB_CONTAINER_NAME=doc-manager-mysql
+```
+
+### Quick Start
+
+**Local MySQL:**
+```bash
+# 1. Ensure MySQL is running
+mysql -h localhost -u root -p -e "SELECT 1;"
+
+# 2. Create environment file
+cp .env.sample .env
+
+# 3. Set USE_DOCKER=false in .env
+
+# 4. Run migrations
+npm run db:migrate
+
+# 5. Verify setup
+npm run db:migrate:status
+```
+
+**Docker MySQL:**
 ```bash
 # 1. Create environment file
 cp .env.sample .env
 
-# 2. Run automated setup
-./infra/scripts/db-setup.sh
+# 2. Set USE_DOCKER=true in .env
 
-# 3. Verify setup
-./infra/scripts/migrate.sh status
+# 3. Run automated setup
+npm run db:setup
+
+# 4. Verify setup
+npm run db:migrate:status
+```
+
+**Remote MySQL (RDS/Cloud):**
+```bash
+# 1. Create environment file and configure
+cp .env.sample .env
+
+# 2. Set your RDS endpoint in .env:
+USE_DOCKER=false
+DB_HOST=myapp.xyz.rds.amazonaws.com
+DB_USER=admin
+DB_PASSWORD=secure_password
+
+# 3. Ensure database exists on RDS, then run migrations
+npm run db:migrate
+
+# 4. Verify setup
+npm run db:migrate:status
 ```
 
 ### MySQL Connection
 
-**From Host Machine:**
+**From Host Machine (Local/RDS):**
 ```bash
-mysql -h localhost -P 3306 -u doc_user -pdoc_password doc_manager
+mysql -h localhost -P 3306 -u root -p doc_manager
 ```
 
 **From Docker:**
 ```bash
-docker exec -it doc-manager-mysql mysql -u root -proot_password doc_manager
+docker exec -it doc-manager-mysql mysql -u root -p doc_manager
 ```
 
 **From Backend (NestJS):**
 ```typescript
 {
   type: 'mysql',
-  host: 'mysql',        // Service name in docker-compose.yml
-  port: 3306,
-  database: 'doc_manager',
-  username: 'doc_user',
-  password: 'doc_password',
-  synchronize: false,   // Use migrations, not auto-sync
+  host: process.env.DB_HOST,     // 'mysql' for Docker, 'localhost' for local, or RDS endpoint
+  port: parseInt(process.env.DB_PORT),
+  database: process.env.DB_DATABASE,
+  username: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  synchronize: false,              // Use migrations, not auto-sync
 }
 ```
 
@@ -190,6 +255,63 @@ CREATE TABLE users (
 DROP TABLE IF EXISTS users;
 ```
 
+### Troubleshooting
+
+**Local MySQL Connection Issues:**
+```bash
+# Test connection
+mysql -h localhost -u root -p -e "SELECT 1;"
+
+# Check MySQL is running
+ps aux | grep mysql
+
+# Verify environment variables
+cat .env | grep DB_
+```
+
+**Docker Issues:**
+```bash
+# Check container is running
+docker ps | grep mysql
+
+# View container logs
+docker-compose logs -f mysql
+
+# Restart container
+docker-compose restart mysql
+```
+
+**Remote MySQL (RDS) Issues:**
+```bash
+# Test connection with full details
+mysql -h your-endpoint.rds.amazonaws.com -P 3306 -u admin -p -e "SELECT 1;"
+
+# Check:
+# - Security group/firewall rules allow port 3306
+# - RDS is publicly accessible (if connecting from outside VPC)
+# - VPC settings are correct
+# - Database user has proper permissions
+```
+
+**Switching Between Modes:**
+
+To switch from one mode to another:
+1. Update `USE_DOCKER` in `.env`
+2. Update connection details (`DB_HOST`, `DB_USER`, etc.)
+3. Run migrations in the new environment
+
+Example - Switching from Local to RDS:
+```bash
+# Update .env
+USE_DOCKER=false
+DB_HOST=myapp.xyz.rds.amazonaws.com
+DB_USER=admin
+DB_PASSWORD=secure_password
+
+# Run migrations on RDS
+npm run db:migrate
+```
+
 ### Current Database Schema
 
 **Users Table:**
@@ -212,37 +334,154 @@ users (
 
 ## RBAC & Authorization
 
-### Database Model
+### Overview
+
+The system implements comprehensive Role-Based Access Control with:
+- **One Role Per User**: Simplified permission management (each user has exactly ONE role)
+- **Granular Permissions**: Fine-grained permissions for different modules
+- **Role-Permission Mapping**: Flexible many-to-many relationship between roles and permissions
+- **Pre-defined Roles**: Five default roles with appropriate permission sets
+
+### Database Schema
 
 ```
-users ↔ user_roles ↔ roles ↔ role_permissions ↔ permissions
+users → roles → role_permissions → permissions
 ```
 
-**Schema:**
+**Tables:**
+
 ```sql
-users           (id, email, password_hash, ...)
-user_roles      (user_id, role_id)
-roles           (id, name, description)
-role_permissions(role_id, permission_id)
-permissions     (id, key, description)
+-- Roles table
+roles (
+    id              BIGINT UNSIGNED PK AUTO_INCREMENT
+    name            VARCHAR(50) NOT NULL UNIQUE
+    display_name    VARCHAR(100) NOT NULL
+    description     TEXT NULL
+    is_active       BOOLEAN DEFAULT TRUE
+    created_at      TIMESTAMP
+    updated_at      TIMESTAMP
+)
+
+-- Permissions table
+permissions (
+    id              BIGINT UNSIGNED PK AUTO_INCREMENT
+    name            VARCHAR(100) NOT NULL UNIQUE
+    display_name    VARCHAR(150) NOT NULL
+    description     TEXT NULL
+    module          VARCHAR(50) NOT NULL
+    is_active       BOOLEAN DEFAULT TRUE
+    created_at      TIMESTAMP
+    updated_at      TIMESTAMP
+)
+
+-- Junction table (many-to-many)
+role_permissions (
+    id              BIGINT UNSIGNED PK AUTO_INCREMENT
+    role_id         BIGINT UNSIGNED FK → roles.id (CASCADE)
+    permission_id   BIGINT UNSIGNED FK → permissions.id (CASCADE)
+    created_at      TIMESTAMP
+    UNIQUE (role_id, permission_id)
+)
+
+-- Users table (updated)
+users (
+    ...
+    role_id         BIGINT UNSIGNED FK → roles.id (SET NULL)
+    ...
+)
 ```
 
-### Permission Keys
+**Key Constraints:**
+- Each user has exactly ONE role (enforced by schema: single `role_id` column)
+- Deleting a role cascades to `role_permissions` and sets user `role_id` to NULL
+- Unique constraint on `(role_id, permission_id)` prevents duplicate assignments
 
-Format: `resource.action`
+### Default Roles & Permissions
 
-**Examples:**
-- `document.upload`
-- `document.view`
-- `document.update`
-- `document.delete`
-- `user.manage`
-- `role.manage`
-- `log.view`
+| Role | ID | Permissions | Use Case |
+|------|-----|-------------|----------|
+| **Super Admin** | 1 | 31 (ALL) | System administrators, platform owners |
+| **Admin** | 2 | 22 | IT administrators (excludes role/permission management) |
+| **Manager** | 3 | 15 | Department managers, team leads |
+| **Employee** | 4 | 7 | Regular employees |
+| **Viewer** | 5 | 3 | External stakeholders, read-only users |
 
-**Wildcards:**
-- `document.*` - All document permissions
-- `*` - All permissions (super admin)
+### Permission Modules
+
+**Documents Module (10 permissions):**
+- `documents.view` - View documents
+- `documents.view_all` - View all documents in system
+- `documents.create` - Create new documents
+- `documents.edit` - Edit own documents
+- `documents.edit_all` - Edit any document
+- `documents.delete` - Delete own documents
+- `documents.delete_all` - Delete any document
+- `documents.share` - Share documents with others
+- `documents.approve` - Approve/reject documents
+- `documents.download` - Download documents
+
+**Users Module (6 permissions):**
+- `users.view` - View user profiles
+- `users.create` - Create new users
+- `users.edit` - Edit user information
+- `users.delete` - Delete user accounts
+- `users.manage_roles` - Assign roles to users
+- `users.suspend` - Suspend/activate accounts
+
+**Roles Module (4 permissions):**
+- `roles.view` - View roles
+- `roles.create` - Create new roles
+- `roles.edit` - Edit existing roles
+- `roles.delete` - Delete roles
+
+**Permissions Module (2 permissions):**
+- `permissions.view` - View all permissions
+- `permissions.manage` - Assign permissions to roles
+
+**Reports Module (4 permissions):**
+- `reports.view` - View reports
+- `reports.view_all` - View all system reports
+- `reports.create` - Create custom reports
+- `reports.export` - Export reports
+
+**Settings Module (2 permissions):**
+- `settings.view` - View system settings
+- `settings.edit` - Modify system settings
+
+**Audit Module (2 permissions):**
+- `audit.view` - View audit logs
+- `audit.export` - Export audit logs
+
+### Permission Naming Convention
+
+Format: `module.action`
+
+**Actions:**
+- `view` - View own or assigned resources
+- `view_all` - View all resources in system
+- `create` - Create new resources
+- `edit` - Edit own resources
+- `edit_all` - Edit any resource
+- `delete` - Delete own resources
+- `delete_all` - Delete any resource
+- `manage` - Full management capability
+- `approve` - Approval workflow
+- `share` - Sharing capability
+- `download` - Download capability
+- `export` - Export capability
+
+### Default Test Users
+
+| Email | Name | Role | Password | Permissions |
+|-------|------|------|----------|-------------|
+| admin@example.com | Admin User | Super Admin | password123 | 31 |
+| maulik@example.com | Maulik Shah | Super Admin | password123 | 31 |
+| manager@example.com | Manager User | Manager | password123 | 15 |
+| employee@example.com | Employee User | Employee | password123 | 7 |
+| john.doe@example.com | John Doe | Employee | password123 | 7 |
+| jane.smith@example.com | Jane Smith | Viewer | password123 | 3 |
+
+**⚠️ Change default passwords in production!**
 
 ### JWT Payload Structure
 
@@ -251,11 +490,20 @@ Format: `resource.action`
 {
   "sub": "user-123",
   "email": "user@example.com",
-  "roles": ["manager", "hr"],
+  "role": {
+    "id": 3,
+    "name": "manager"
+  },
   "permissions": [
-    "document.upload",
-    "document.view",
-    "user.view"
+    "documents.view",
+    "documents.view_all",
+    "documents.create",
+    "documents.edit",
+    "documents.edit_all",
+    "documents.delete",
+    "documents.share",
+    "documents.approve",
+    "documents.download"
   ],
   "iat": 1735737600,
   "exp": 1735738500
@@ -279,16 +527,42 @@ Format: `resource.action`
 @Controller('documents')
 export class DocumentsController {
   @Post()
-  @RequirePermissions('document.upload')
+  @RequirePermissions('documents.create')
   async uploadDocument(@Body() dto: UploadDocumentDto) {
     return this.documentsService.upload(dto);
   }
 
   @Delete(':id')
-  @RequirePermissions('document.delete')
-  async deleteDocument(@Param('id') id: string) {
+  @RequirePermissions('documents.delete')
+  async deleteDocument(@Param('id') id: string, @CurrentUser() user: User) {
+    // Additional check: Can only delete own documents unless has documents.delete_all
+    const hasDeleteAll = user.permissions.includes('documents.delete_all');
+    if (!hasDeleteAll) {
+      const document = await this.documentsService.findOne(id);
+      if (document.uploaded_by !== user.id) {
+        throw new ForbiddenException('Cannot delete documents of other users');
+      }
+    }
     return this.documentsService.delete(id);
   }
+}
+```
+
+**Permission Check Helper:**
+```typescript
+async function checkPermission(userId: number, permission: string): Promise<boolean> {
+  const result = await db.query(`
+    SELECT EXISTS(
+      SELECT 1
+      FROM users u
+      JOIN roles r ON u.role_id = r.id AND r.is_active = TRUE
+      JOIN role_permissions rp ON r.id = rp.role_id
+      JOIN permissions p ON rp.permission_id = p.id AND p.is_active = TRUE
+      WHERE u.id = ? AND p.name = ?
+    ) as has_permission
+  `, [userId, permission]);
+
+  return result.has_permission === 1;
 }
 ```
 
@@ -301,11 +575,11 @@ export function DocumentActions({ documentId }) {
 
   return (
     <div>
-      {hasPermission(permissions, 'document.view') && (
+      {hasPermission(permissions, 'documents.view') && (
         <button onClick={() => download(documentId)}>Download</button>
       )}
 
-      {hasPermission(permissions, 'document.delete') && (
+      {hasPermission(permissions, 'documents.delete') && (
         <button onClick={() => deleteDoc(documentId)}>Delete</button>
       )}
     </div>
@@ -314,6 +588,139 @@ export function DocumentActions({ documentId }) {
 ```
 
 **IMPORTANT:** Frontend permission checks are UI-only (UX optimization). Backend ALWAYS validates permissions.
+
+### Common Queries
+
+**Get User's Permissions:**
+```sql
+SELECT p.name, p.display_name, p.module
+FROM users u
+JOIN roles r ON u.role_id = r.id
+JOIN role_permissions rp ON r.id = rp.role_id
+JOIN permissions p ON rp.permission_id = p.id
+WHERE u.email = 'admin@example.com'
+ORDER BY p.module, p.name;
+```
+
+**Check Specific Permission:**
+```sql
+SELECT EXISTS(
+    SELECT 1
+    FROM users u
+    JOIN roles r ON u.role_id = r.id
+    JOIN role_permissions rp ON r.id = rp.role_id
+    JOIN permissions p ON rp.permission_id = p.id
+    WHERE u.email = 'manager@example.com'
+    AND p.name = 'documents.approve'
+) as has_permission;
+```
+
+**Assign Role to User:**
+```sql
+UPDATE users
+SET role_id = (SELECT id FROM roles WHERE name = 'manager')
+WHERE email = 'newuser@example.com';
+```
+
+**Add Permission to Role:**
+```sql
+INSERT INTO role_permissions (role_id, permission_id)
+VALUES (
+    (SELECT id FROM roles WHERE name = 'manager'),
+    (SELECT id FROM permissions WHERE name = 'documents.delete_all')
+);
+```
+
+### RBAC Setup
+
+**Run Migrations:**
+```bash
+npm run db:migrate
+```
+
+This creates:
+1. `roles` table
+2. `permissions` table
+3. `role_permissions` junction table
+4. Adds `role_id` to `users` table
+
+**Seed RBAC Data:**
+```bash
+npm run db:seed
+```
+
+This populates:
+1. Default roles (Super Admin, Admin, Manager, Employee, Viewer)
+2. 31 permissions across 7 modules
+3. Role-permission mappings
+4. Test users with assigned roles
+
+**Verify Setup:**
+```bash
+# Check migration status
+npm run db:migrate:status
+
+# List seed files
+npm run db:seed list
+```
+
+### Best Practices
+
+**1. One Role Per User:**
+- Keep the "one role per user" constraint to avoid complexity
+- If users need different permission sets, create specialized roles
+- Example: Instead of assigning both 'manager' and 'auditor', create a 'manager_auditor' role
+
+**2. Permission Checks:**
+```typescript
+// ❌ WRONG - Checking role name
+if (user.role.name === 'admin') {
+  allowAccess();
+}
+
+// ✅ CORRECT - Checking permission
+@RequirePermissions('documents.delete')
+deleteDocument() {
+  // Permission guard handles authorization
+}
+```
+
+**3. Role Management:**
+- Avoid deleting roles that have users assigned
+- Use `is_active = FALSE` to disable roles instead
+- Document role purposes clearly in the description field
+
+**4. Permission Management:**
+- Group related permissions by module
+- Use `is_active = FALSE` to deprecate permissions
+- Document what each permission grants in the description
+
+**5. Security:**
+- Regularly audit role-permission mappings
+- Review user role assignments periodically
+- Log all role and permission changes
+- Implement backend permission checks, not just UI hiding
+
+### Troubleshooting
+
+**User has no permissions:**
+1. Check if user has a role: `SELECT role_id FROM users WHERE id = ?`
+2. Check if role is active: `SELECT is_active FROM roles WHERE id = ?`
+3. Check role-permission mappings: `SELECT * FROM role_permissions WHERE role_id = ?`
+
+**Permission not working:**
+1. Verify permission exists: `SELECT * FROM permissions WHERE name = ?`
+2. Check if permission is active
+3. Verify role has permission: `SELECT * FROM role_permissions WHERE permission_id = ?`
+
+**Need to reset:**
+```bash
+# Drop all tables and re-run migrations
+npm run db:migrate fresh
+
+# Then seed
+npm run db:seed
+```
 
 ---
 
