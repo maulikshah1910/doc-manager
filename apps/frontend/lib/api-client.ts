@@ -41,8 +41,12 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    // Handle 401 Unauthorized
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Don't attempt token refresh for login or refresh endpoints
+    const isLoginEndpoint = originalRequest.url?.includes('/auth/login');
+    const isRefreshEndpoint = originalRequest.url?.includes('/auth/refresh');
+
+    // Handle 401 Unauthorized (but not for login/refresh endpoints)
+    if (error.response?.status === 401 && !originalRequest._retry && !isLoginEndpoint && !isRefreshEndpoint) {
       originalRequest._retry = true;
 
       try {

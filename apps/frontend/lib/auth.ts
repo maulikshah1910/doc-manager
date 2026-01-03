@@ -1,5 +1,5 @@
 import apiClient, { setAccessToken, getAccessToken } from './api-client';
-import { mockLogin, mockLogout } from './mock-auth';
+import { User } from './types';
 
 export interface LoginCredentials {
   email: string;
@@ -9,40 +9,14 @@ export interface LoginCredentials {
 export interface LoginResponse {
   data: {
     accessToken: string;
-    user: {
-      id: string;
-      email: string;
-      roles: string[];
-    };
+    user: User;
   };
 }
-
-export interface User {
-  id: string;
-  email: string;
-  roles: string[];
-  permissions: string[];
-}
-
-// Check if we should use mock authentication
-const USE_MOCK_AUTH = process.env.NEXT_PUBLIC_USE_MOCK_AUTH === 'true';
 
 /**
  * Login user with email and password
  */
 export const login = async (credentials: LoginCredentials): Promise<User> => {
-  // Use mock authentication if enabled
-  if (USE_MOCK_AUTH) {
-    console.log('🔧 Using MOCK authentication (backend not available)');
-    const mockResponse = await mockLogin(credentials);
-
-    // Store access token in memory
-    setAccessToken(mockResponse.accessToken);
-
-    return mockResponse.user;
-  }
-
-  // Real API authentication
   try {
     const response = await apiClient.post<LoginResponse>(
       '/api/v1/auth/login',
@@ -54,13 +28,10 @@ export const login = async (credentials: LoginCredentials): Promise<User> => {
     // Store access token in memory
     setAccessToken(accessToken);
 
-    // Parse permissions from JWT (if needed)
-    // For now, return user with empty permissions
-    return {
-      ...user,
-      permissions: [],
-    };
+    // Return user with all data from backend
+    return user;
   } catch (error) {
+    console.error('Login error:', error);
     throw new Error('Invalid email or password');
   }
 };
@@ -69,19 +40,6 @@ export const login = async (credentials: LoginCredentials): Promise<User> => {
  * Logout user
  */
 export const logout = async (): Promise<void> => {
-  // Use mock logout if enabled
-  if (USE_MOCK_AUTH) {
-    console.log('🔧 Using MOCK logout');
-    await mockLogout();
-    setAccessToken(null);
-
-    if (typeof window !== 'undefined') {
-      window.location.href = '/';
-    }
-    return;
-  }
-
-  // Real API logout
   try {
     await apiClient.post('/api/v1/auth/logout');
   } catch (error) {
@@ -113,7 +71,6 @@ export const getCurrentUser = (): User | null => {
   const token = getAccessToken();
   if (!token) return null;
 
-  // TODO: Decode JWT to get user info
-  // For now, return mock data
+  // TODO: Decode JWT to get user info from token payload
   return null;
 };
