@@ -33,12 +33,12 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 
   const handleProfile = () => {
     setIsDropdownOpen(false);
-    router.push('/dashboard/profile');
+    router.push('/profile');
   };
 
   const handleChangePassword = () => {
     setIsDropdownOpen(false);
-    router.push('/dashboard/change-password');
+    router.push('/change-password');
   };
 
   return (
