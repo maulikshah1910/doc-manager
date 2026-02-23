@@ -2,18 +2,21 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as bcrypt from 'bcryptjs';
 import { User } from '../entities/user.entity';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-  ) {}
+  ) { }
 
   async findById(id: number): Promise<User> {
     const user = await this.userRepository.findOne({
@@ -65,6 +68,29 @@ export class UsersService {
     return this.findById(updatedUser.id);
   }
 
+  async changePassword(
+    userId: number,
+    changePasswordDto: ChangePasswordDto,
+  ): Promise<void> {
+    const user = await this.findById(userId);
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(
+      changePasswordDto.currentPassword,
+      user.password,
+    );
+
+    if (!isCurrentPasswordValid) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(changePasswordDto.newPassword, salt);
+
+    await this.userRepository.save(user);
+  }
+
   async updateProfileImage(userId: number, imageUrl: string): Promise<User> {
     const user = await this.findById(userId);
     user.profileImage = imageUrl;
@@ -72,3 +98,4 @@ export class UsersService {
     return this.findById(userId);
   }
 }
+

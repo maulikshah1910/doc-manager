@@ -10,8 +10,28 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   // Enable CORS
+  const frontendUrl = configService.get<string>('FRONTEND_URL');
+  const isProduction = configService.get('NODE_ENV') === 'production';
+
   app.enableCors({
-    origin: configService.get('FRONTEND_URL', 'http://localhost:3000'),
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // In production, only allow the configured frontend URL
+      if (isProduction) {
+        if (!origin || origin === frontendUrl) {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+        return;
+      }
+
+      // In development, allow any localhost origin (any port)
+      if (!origin || /^http:\/\/localhost(:\d+)?$/.test(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
 

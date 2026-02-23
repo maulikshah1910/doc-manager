@@ -14,6 +14,32 @@ export interface LoginResponse {
 }
 
 /**
+ * Initialize auth session from refresh token cookie.
+ * Called on app mount to restore session after page reload.
+ * Returns user data if session is restored, null otherwise.
+ */
+export const initializeAuth = async (): Promise<User | null> => {
+  try {
+    // Call refresh endpoint — the httpOnly refresh token cookie is sent automatically
+    const refreshResponse = await apiClient.post<{ data: { accessToken: string } }>(
+      '/api/v1/auth/refresh',
+      {}
+    );
+
+    const { accessToken } = refreshResponse.data.data;
+    setAccessToken(accessToken);
+
+    // Fetch user data with the fresh access token
+    const meResponse = await apiClient.get<{ data: User }>('/api/v1/auth/me');
+    return meResponse.data.data;
+  } catch {
+    // No valid refresh token — user needs to login
+    setAccessToken(null);
+    return null;
+  }
+};
+
+/**
  * Login user with email and password
  */
 export const login = async (credentials: LoginCredentials): Promise<User> => {
@@ -37,7 +63,8 @@ export const login = async (credentials: LoginCredentials): Promise<User> => {
 };
 
 /**
- * Logout user
+ * Logout user — clears access token and calls backend to clear cookie.
+ * Does NOT handle redirect — callers (AuthProvider/components) manage navigation.
  */
 export const logout = async (): Promise<void> => {
   try {
@@ -48,29 +75,12 @@ export const logout = async (): Promise<void> => {
   } finally {
     // Clear access token
     setAccessToken(null);
-
-    // Redirect to login
-    if (typeof window !== 'undefined') {
-      window.location.href = '/';
-    }
   }
 };
 
 /**
- * Check if user is authenticated
+ * Check if user is authenticated (in-memory check)
  */
 export const isAuthenticated = (): boolean => {
   return getAccessToken() !== null;
-};
-
-/**
- * Get current user from token (simplified version)
- * In production, this should decode JWT or fetch from API
- */
-export const getCurrentUser = (): User | null => {
-  const token = getAccessToken();
-  if (!token) return null;
-
-  // TODO: Decode JWT to get user info from token payload
-  return null;
 };

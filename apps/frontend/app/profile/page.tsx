@@ -6,27 +6,28 @@ import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import ProfileForm from '@/components/profile/profile-form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Alert } from '@/components/ui';
 import { getProfile, updateProfile, UpdateProfileDto } from '@/lib/profile';
-import { isAuthenticated } from '@/lib/auth';
+import { useAuth } from '@/contexts/auth-context';
 import { User } from '@/lib/types';
 
 export default function ProfilePage() {
   const router = useRouter();
+  const { isLoading: authLoading, isAuthenticated } = useAuth();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [permissions, setPermissions] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!isAuthenticated()) {
+    // Wait for auth initialization
+    if (authLoading) return;
+
+    if (!isAuthenticated) {
       router.push('/');
       return;
     }
 
     loadProfile();
-
-    const mockPermissions = ['*']; // Wildcard - all permissions
-    setPermissions(mockPermissions);
-  }, [router]);
+  }, [authLoading, isAuthenticated, router]);
 
   const loadProfile = async () => {
     try {
@@ -50,11 +51,19 @@ export default function ProfilePage() {
     setPermissions(updatedUser.permissions || []);
   };
 
-  if (!isAuthenticated()) {
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
     return null;
   }
 
-  
+
 
   return (
     <DashboardLayout permissions={permissions}>

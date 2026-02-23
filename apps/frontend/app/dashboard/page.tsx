@@ -1,27 +1,36 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated } from '@/lib/auth';
+import { useAuth } from '@/contexts/auth-context';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [permissions, setPermissions] = useState<string[]>([]);
+  const { user, isLoading, isAuthenticated } = useAuth();
 
   useEffect(() => {
-    // Check authentication on mount
-    if (!isAuthenticated()) {
+    // Only redirect after auth initialization is complete
+    if (!isLoading && !isAuthenticated) {
       router.push('/');
-      return;
     }
+  }, [isLoading, isAuthenticated, router]);
 
-    // TODO: Get actual permissions from decoded JWT or API
-    // For now, use mock permissions (admin has all)
-    const mockPermissions = ['*']; // Wildcard - all permissions
-    setPermissions(mockPermissions);
-  }, [router]);
+  // Show loading while auth initializes
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  const permissions = user?.permissions || ['*'];
 
   return (
     <DashboardLayout permissions={permissions}>

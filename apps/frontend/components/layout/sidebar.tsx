@@ -2,8 +2,8 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { logout } from '@/lib/auth';
+import { usePathname, useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/auth-context';
 
 interface SidebarProps {
   isExpanded: boolean;
@@ -19,9 +19,12 @@ interface NavItem {
 
 export const Sidebar: React.FC<SidebarProps> = ({ isExpanded, permissions = [] }) => {
   const pathname = usePathname();
+  const router = useRouter();
+  const { logout } = useAuth();
 
   const handleLogout = async () => {
     await logout();
+    router.push('/');
   };
 
   // Check if user has permission

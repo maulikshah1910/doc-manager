@@ -9,13 +9,14 @@ import {
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @Controller('api/v1/users')
 @UseGuards(JwtAuthGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly usersService: UsersService) { }
 
   @Get('profile')
   async getProfile(@CurrentUser() user: any) {
@@ -77,6 +78,19 @@ export class UsersController {
         updatedAt: updatedUser.updatedAt,
       },
       message: 'Profile updated successfully',
+    };
+  }
+
+  @Put('change-password')
+  @HttpCode(HttpStatus.OK)
+  async changePassword(
+    @CurrentUser() user: any,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    await this.usersService.changePassword(user.id, changePasswordDto);
+
+    return {
+      message: 'Password changed successfully',
     };
   }
 }

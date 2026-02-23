@@ -15,6 +15,6 @@ export const getDatabaseConfig = (
   database: configService.get<string>('DB_DATABASE', 'doc_manager'),
   entities: [User, Role, Permission],
   synchronize: false, // We use migrations, not auto-sync
-  logging: configService.get<string>('NODE_ENV') === 'development',
+  logging: configService.get<string>('NODE_ENV') === 'development' ? ['error', 'warn'] : false,
   timezone: '+00:00',
 });

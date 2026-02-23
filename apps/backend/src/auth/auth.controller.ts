@@ -8,6 +8,7 @@ import {
   Req,
   Get,
   UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { AuthService } from './auth.service';
@@ -18,7 +19,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 @Controller('api/v1/auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Public()
   @Post('login')
@@ -50,7 +51,7 @@ export class AuthController {
     const refreshToken = request.cookies?.refreshToken;
 
     if (!refreshToken) {
-      throw new Error('Refresh token not found');
+      throw new UnauthorizedException('Refresh token not found');
     }
 
     return this.authService.refreshAccessToken(refreshToken);
