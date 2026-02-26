@@ -18,6 +18,13 @@ export class UsersService {
     private readonly userRepository: Repository<User>,
   ) { }
 
+  async findAll(): Promise<User[]> {
+    return this.userRepository.find({
+      relations: ['role'],
+      order: { id: 'ASC' },
+    });
+  }
+
   async findById(id: number): Promise<User> {
     const user = await this.userRepository.findOne({
       where: { id },

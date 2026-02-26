@@ -12,11 +12,38 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 
 @Controller('api/v1/users')
 @UseGuards(JwtAuthGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) { }
+
+  @Get()
+  @RequirePermissions('users.view')
+  async findAll() {
+    const users = await this.usersService.findAll();
+
+    return {
+      data: users.map((user) => ({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        profileImage: user.profileImage,
+        status: user.status,
+        role: user.role
+          ? {
+            id: user.role.id,
+            name: user.role.name,
+            displayName: user.role.displayName,
+          }
+          : null,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      })),
+    };
+  }
 
   @Get('profile')
   async getProfile(@CurrentUser() user: any) {
