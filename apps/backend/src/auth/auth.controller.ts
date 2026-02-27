@@ -10,6 +10,7 @@ import {
   UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Response, Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -23,12 +24,17 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() loginDto: LoginDto,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const result = await this.authService.login(loginDto);
+    const userAgent = request.headers['user-agent'];
+    const ipAddress = request.ip || request.socket?.remoteAddress;
+
+    const result = await this.authService.login(loginDto, userAgent, ipAddress);
 
     // Set refresh token in httpOnly cookie
     response.cookie('refreshToken', result.data.refreshToken, {
@@ -46,6 +52,7 @@ export class AuthController {
 
   @Public()
   @Post('refresh')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() request: Request) {
     const refreshToken = request.cookies?.refreshToken;
@@ -59,12 +66,38 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@Res({ passthrough: true }) response: Response) {
+  async logout(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    // Revoke the session in the database
+    const refreshToken = request.cookies?.refreshToken;
+    if (refreshToken) {
+      await this.authService.revokeSession(refreshToken);
+    }
+
     // Clear refresh token cookie
     response.clearCookie('refreshToken');
 
     return {
       message: 'Logged out successfully',
+    };
+  }
+
+  @Post('logout-all')
+  @HttpCode(HttpStatus.OK)
+  async logoutAll(
+    @CurrentUser() user: any,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    // Revoke all sessions for the user
+    await this.authService.revokeAllSessions(user.id);
+
+    // Clear refresh token cookie
+    response.clearCookie('refreshToken');
+
+    return {
+      message: 'All sessions logged out successfully',
     };
   }
 
@@ -76,15 +109,13 @@ export class AuthController {
     };
   }
 
-  @Public()
   @Post('verify')
   @HttpCode(HttpStatus.OK)
   async verifyToken(@Body('token') token: string) {
-    const payload = await this.authService.verifyToken(token);
+    await this.authService.verifyToken(token);
     return {
       data: {
         valid: true,
-        payload,
       },
     };
   }

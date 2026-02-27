@@ -31,12 +31,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User account is not active');
     }
 
-    // Return user object with permissions from JWT
+    // Build permissions from DB (fresh on every request), not from JWT
+    const permissions = user.role?.permissions
+      ?.filter((p) => p.isActive)
+      .map((p) => p.name) || [];
+
+    // Return user object with fresh permissions from DB
     return {
       id: payload.sub,
       email: payload.email,
-      role: payload.role,
-      permissions: payload.permissions,
+      role: user.role ? { id: user.role.id, name: user.role.name } : undefined,
+      permissions,
     };
   }
 }

@@ -5,10 +5,12 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { User } from '../entities/user.entity';
+import { Session } from '../entities/session.entity';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload, RefreshTokenPayload } from './interfaces/jwt-payload.interface';
 
@@ -17,9 +19,18 @@ export class AuthService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Session)
+    private readonly sessionRepository: Repository<Session>,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
+
+  /**
+   * Hash a token using SHA-256 for secure storage.
+   */
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
 
   async validateUser(email: string, password: string): Promise<User> {
     const user = await this.userRepository.findOne({
@@ -43,7 +54,7 @@ export class AuthService {
     return user;
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, userAgent?: string, ipAddress?: string) {
     const user = await this.validateUser(loginDto.email, loginDto.password);
 
     // Extract permissions from user's role
@@ -56,6 +67,19 @@ export class AuthService {
 
     // Generate refresh token
     const refreshToken = this.generateRefreshToken(user);
+
+    // Store hashed refresh token in sessions table
+    const refreshExpiryStr = this.configService.get('JWT_REFRESH_TOKEN_EXPIRY', '7d');
+    const expiresAt = this.calculateExpiry(refreshExpiryStr);
+
+    const session = this.sessionRepository.create({
+      userId: user.id,
+      tokenHash: this.hashToken(refreshToken),
+      expiresAt,
+      userAgent: userAgent?.substring(0, 500),
+      ipAddress: ipAddress?.substring(0, 45),
+    });
+    await this.sessionRepository.save(session);
 
     return {
       data: {
@@ -108,6 +132,23 @@ export class AuthService {
     try {
       const payload = this.jwtService.verify<RefreshTokenPayload>(refreshToken);
 
+      // Validate the session in the database
+      const tokenHash = this.hashToken(refreshToken);
+      const session = await this.sessionRepository.findOne({
+        where: {
+          tokenHash,
+          revokedAt: IsNull(),
+        },
+      });
+
+      if (!session) {
+        throw new UnauthorizedException('Session not found or has been revoked');
+      }
+
+      if (session.expiresAt < new Date()) {
+        throw new UnauthorizedException('Session has expired');
+      }
+
       const user = await this.userRepository.findOne({
         where: { id: payload.sub },
         relations: ['role', 'role.permissions'],
@@ -129,8 +170,32 @@ export class AuthService {
         },
       };
     } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
       throw new UnauthorizedException('Invalid refresh token');
     }
+  }
+
+  /**
+   * Revoke a specific refresh token session.
+   */
+  async revokeSession(refreshToken: string): Promise<void> {
+    const tokenHash = this.hashToken(refreshToken);
+    await this.sessionRepository.update(
+      { tokenHash, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
+  }
+
+  /**
+   * Revoke all active sessions for a user (logout everywhere).
+   */
+  async revokeAllSessions(userId: number): Promise<void> {
+    await this.sessionRepository.update(
+      { userId, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
   }
 
   async getUserById(id: number): Promise<User> {
@@ -152,5 +217,30 @@ export class AuthService {
     } catch (error) {
       throw new UnauthorizedException('Invalid token');
     }
+  }
+
+  /**
+   * Calculate expiry date from a duration string like '7d', '24h', '30m'.
+   */
+  private calculateExpiry(duration: string): Date {
+    const now = new Date();
+    const match = duration.match(/^(\d+)([dhms])$/);
+    if (!match) {
+      // Default to 7 days if format is unrecognized
+      now.setDate(now.getDate() + 7);
+      return now;
+    }
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+
+    switch (unit) {
+      case 'd': now.setDate(now.getDate() + value); break;
+      case 'h': now.setHours(now.getHours() + value); break;
+      case 'm': now.setMinutes(now.getMinutes() + value); break;
+      case 's': now.setSeconds(now.getSeconds() + value); break;
+    }
+
+    return now;
   }
 }

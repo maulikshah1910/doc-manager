@@ -7,11 +7,12 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { User } from '../entities/user.entity';
+import { Session } from '../entities/session.entity';
 import { getJwtConfig } from '../config/jwt.config';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, Session]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -23,4 +24,4 @@ import { getJwtConfig } from '../config/jwt.config';
   providers: [AuthService, JwtStrategy],
   exports: [AuthService],
 })
-export class AuthModule {}
+export class AuthModule { }

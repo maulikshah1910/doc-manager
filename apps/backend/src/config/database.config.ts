@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { User } from '../entities/user.entity';
 import { Role } from '../entities/role.entity';
 import { Permission } from '../entities/permission.entity';
+import { Session } from '../entities/session.entity';
 
 export const getDatabaseConfig = (
   configService: ConfigService,
@@ -13,7 +14,7 @@ export const getDatabaseConfig = (
   username: configService.get<string>('DB_USER', 'root'),
   password: configService.get<string>('DB_PASSWORD'),
   database: configService.get<string>('DB_DATABASE', 'doc_manager'),
-  entities: [User, Role, Permission],
+  entities: [User, Role, Permission, Session],
   synchronize: false, // We use migrations, not auto-sync
   logging: configService.get<string>('NODE_ENV') === 'development' ? ['error', 'warn'] : false,
   timezone: '+00:00',
