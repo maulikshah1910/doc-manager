@@ -37,11 +37,34 @@ export default function UsersPage() {
     const [limit, setLimit] = useState(10);
     const [total, setTotal] = useState(0);
 
+    // Search and Sort State
+    const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [sortBy, setSortBy] = useState('createdAt');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+    // Column Filters State
+    const [nameFilter, setNameFilter] = useState('');
+    const [debouncedNameFilter, setDebouncedNameFilter] = useState('');
+    const [emailFilter, setEmailFilter] = useState('');
+    const [debouncedEmailFilter, setDebouncedEmailFilter] = useState('');
+
     const permissions = user?.permissions || [];
 
     const hasPermission = (perm: string) => {
         return permissions.includes(perm) || permissions.includes('*');
     };
+
+    // Debounce search and filters
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(search);
+            setDebouncedNameFilter(nameFilter);
+            setDebouncedEmailFilter(emailFilter);
+            setPage(1); // Reset to page 1 on new search or filter
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [search, nameFilter, emailFilter]);
 
     useEffect(() => {
         if (authLoading) return;
@@ -52,13 +75,22 @@ export default function UsersPage() {
         }
 
         loadUsers();
-    }, [authLoading, isAuthenticated, router, page, limit]);
+    }, [authLoading, isAuthenticated, router, page, limit, debouncedSearch, sortBy, sortOrder, debouncedNameFilter, debouncedEmailFilter]);
 
     const loadUsers = async () => {
         try {
             setIsLoading(true);
             setError('');
-            const response = await apiClient.get<{ data: UserData[], meta: { total: number } }>(`/api/v1/users?page=${page}&limit=${limit}`);
+            const params = new URLSearchParams({
+                page: page.toString(),
+                limit: limit.toString(),
+                search: debouncedSearch,
+                sortBy,
+                sortOrder,
+                nameFilter: debouncedNameFilter,
+                emailFilter: debouncedEmailFilter,
+            });
+            const response = await apiClient.get<{ data: UserData[], meta: { total: number } }>(`/api/v1/users?${params.toString()}`);
             setUsers(response.data.data);
             if (response.data.meta) {
                 setTotal(response.data.meta.total);
@@ -128,6 +160,24 @@ export default function UsersPage() {
                     )}
                 </div>
 
+                {/* Table Actions (Search) */}
+                <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                    <div className="relative w-full max-w-sm">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Search by name or email..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors"
+                        />
+                    </div>
+                </div>
+
                 {/* Error State */}
                 {error && (
                     <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -145,34 +195,66 @@ export default function UsersPage() {
                             <div className="flex items-center justify-center py-12">
                                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
                             </div>
-                        ) : users.length === 0 ? (
-                            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                                <svg
-                                    className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
-                                    />
-                                </svg>
-                                <p className="text-lg font-medium">No users found</p>
-                                <p className="mt-1">Get started by creating a new user.</p>
-                            </div>
                         ) : (
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto min-h-[400px]">
                                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                                     <thead className="bg-gray-50 dark:bg-gray-800">
                                         <tr>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                Name
+                                                <div
+                                                    className="flex items-center space-x-1 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200"
+                                                    onClick={() => {
+                                                        if (sortBy === 'firstName') {
+                                                            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                        } else {
+                                                            setSortBy('firstName');
+                                                            setSortOrder('asc');
+                                                        }
+                                                    }}
+                                                >
+                                                    <span>Name</span>
+                                                    <div className="flex flex-col">
+                                                        <svg className={`w-3 h-3 ${sortBy === 'firstName' && sortOrder === 'asc' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                                                        <svg className={`w-3 h-3 -mt-1 ${sortBy === 'firstName' && sortOrder === 'desc' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Filter name..."
+                                                        className="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white bg-white dark:bg-gray-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-normal normal-case"
+                                                        value={nameFilter}
+                                                        onChange={(e) => setNameFilter(e.target.value)}
+                                                    />
+                                                </div>
                                             </th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                Email
+                                                <div
+                                                    className="flex items-center space-x-1 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200"
+                                                    onClick={() => {
+                                                        if (sortBy === 'email') {
+                                                            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                        } else {
+                                                            setSortBy('email');
+                                                            setSortOrder('asc');
+                                                        }
+                                                    }}
+                                                >
+                                                    <span>Email</span>
+                                                    <div className="flex flex-col">
+                                                        <svg className={`w-3 h-3 ${sortBy === 'email' && sortOrder === 'asc' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                                                        <svg className={`w-3 h-3 -mt-1 ${sortBy === 'email' && sortOrder === 'desc' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Filter email..."
+                                                        className="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white bg-white dark:bg-gray-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-normal normal-case"
+                                                        value={emailFilter}
+                                                        onChange={(e) => setEmailFilter(e.target.value)}
+                                                    />
+                                                </div>
                                             </th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                                 Role
@@ -188,7 +270,39 @@ export default function UsersPage() {
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                                        {users.map((u) => (
+                                        {users.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={hasPermission('users.edit') ? 5 : 4} className="px-6 py-16 text-center text-gray-500 dark:text-gray-400">
+                                                    <svg
+                                                        className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-4"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        viewBox="0 0 24 24"
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+                                                        />
+                                                    </svg>
+                                                    <p className="text-lg font-medium text-gray-900 dark:text-white">No users found</p>
+                                                    <p className="mt-1 mb-6 text-sm">Get started by creating a new user or adjusting your filters to find existing users.</p>
+                                                    {(search || nameFilter || emailFilter) && (
+                                                        <button
+                                                            onClick={() => {
+                                                                setSearch('');
+                                                                setNameFilter('');
+                                                                setEmailFilter('');
+                                                            }}
+                                                            className="inline-flex items-center justify-center px-4 py-2 border border-blue-600 rounded-md shadow-sm text-sm font-medium text-blue-600 bg-transparent hover:bg-blue-50 dark:hover:bg-blue-900/30 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                                                        >
+                                                            Clear Filters
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ) : users.map((u) => (
                                             <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     <div className="flex items-center">
@@ -300,8 +414,8 @@ export default function UsersPage() {
                                                     key={pageNum}
                                                     onClick={() => setPage(pageNum as number)}
                                                     className={`px-3 py-1 border rounded-md text-sm font-medium transition-colors ${page === pageNum
-                                                            ? 'border-blue-600 bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:border-blue-500 dark:text-blue-400'
-                                                            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                                                        ? 'border-blue-600 bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:border-blue-500 dark:text-blue-400'
+                                                        : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                                                         }`}
                                                 >
                                                     {pageNum}

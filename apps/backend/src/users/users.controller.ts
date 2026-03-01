@@ -31,11 +31,25 @@ export class UsersController {
   async findAll(
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '10',
+    @Query('search') search: string = '',
+    @Query('sortBy') sortBy: string = 'createdAt',
+    @Query('sortOrder') sortOrder: string = 'desc',
+    @Query('nameFilter') nameFilter: string = '',
+    @Query('emailFilter') emailFilter: string = '',
   ) {
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
+    const cleanSortOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    const { users, total } = await this.usersService.findAll(pageNum, limitNum);
+    const { users, total } = await this.usersService.findAll(
+      pageNum,
+      limitNum,
+      search,
+      sortBy,
+      cleanSortOrder,
+      nameFilter,
+      emailFilter,
+    );
 
     return {
       data: users.map((user) => ({

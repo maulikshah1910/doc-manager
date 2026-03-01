@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Brackets } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../entities/user.entity';
 import { Role } from '../entities/role.entity';
@@ -25,16 +25,55 @@ export class UsersService {
     private readonly mailService: MailService,
   ) { }
 
-  async findAll(page: number = 1, limit: number = 10): Promise<{ users: User[], total: number }> {
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+    search: string = '',
+    sortBy: string = 'createdAt',
+    sortOrder: 'ASC' | 'DESC' = 'DESC',
+    nameFilter: string = '',
+    emailFilter: string = '',
+  ): Promise<{ users: User[], total: number }> {
     const skip = (page - 1) * limit;
-    const [users, total] = await this.userRepository.findAndCount({
-      relations: ['role'],
-      order: { id: 'ASC' },
-      skip,
-      take: limit,
-    });
 
-    return { users, total };
+    // Create base query builder
+    const qb = this.userRepository.createQueryBuilder('user')
+      .leftJoinAndSelect('user.role', 'role')
+      .skip(skip)
+      .take(limit)
+      .orderBy(`user.${sortBy}`, sortOrder);
+
+    // Apply global text search logic (OR condition across multiple fields)
+    if (search) {
+      qb.andWhere(new Brackets(query => {
+        query.where('user.firstName LIKE :searchParam', { searchParam: `%${search}%` })
+          .orWhere('user.lastName LIKE :searchParam', { searchParam: `%${search}%` })
+          .orWhere('user.email LIKE :searchParam', { searchParam: `%${search}%` });
+      }));
+    }
+
+    // Apply column level filter for Name (searches either firstName or lastName)
+    if (nameFilter) {
+      qb.andWhere(new Brackets(query => {
+        query.where('user.firstName LIKE :nameParam', { nameParam: `%${nameFilter}%` })
+          .orWhere('user.lastName LIKE :nameParam', { nameParam: `%${nameFilter}%` });
+      }));
+    }
+
+    // Apply column level filter for Email
+    if (emailFilter) {
+      qb.andWhere('user.email LIKE :emailParam', { emailParam: `%${emailFilter}%` });
+    }
+
+    try {
+      console.log("SQL:", qb.getSql());
+      console.log("PARAMS:", qb.getParameters());
+      const [users, total] = await qb.getManyAndCount();
+      return { users, total };
+    } catch (err) {
+      console.error("USERS FINDALL ERROR:", err);
+      throw err;
+    }
   }
 
   async findById(id: number): Promise<User> {
