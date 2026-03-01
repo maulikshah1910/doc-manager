@@ -9,6 +9,7 @@ import {
     UseGuards,
     HttpCode,
     HttpStatus,
+    Query,
 } from '@nestjs/common';
 import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dto/create-role.dto';
@@ -40,8 +41,14 @@ export class RolesController {
 
     @Get()
     @RequirePermissions('roles.view')
-    async findAll() {
-        const roles = await this.rolesService.findAll();
+    async findAll(
+        @Query('page') page: string = '1',
+        @Query('limit') limit: string = '10',
+    ) {
+        const pageNum = parseInt(page, 10) || 1;
+        const limitNum = parseInt(limit, 10) || 10;
+
+        const { roles, total } = await this.rolesService.findAll(pageNum, limitNum);
 
         return {
             data: roles.map((role) => ({
@@ -59,6 +66,12 @@ export class RolesController {
                 createdAt: role.createdAt,
                 updatedAt: role.updatedAt,
             })),
+            meta: {
+                total,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(total / limitNum),
+            }
         };
     }
 

@@ -25,11 +25,16 @@ export class UsersService {
     private readonly mailService: MailService,
   ) { }
 
-  async findAll(): Promise<User[]> {
-    return this.userRepository.find({
+  async findAll(page: number = 1, limit: number = 10): Promise<{ users: User[], total: number }> {
+    const skip = (page - 1) * limit;
+    const [users, total] = await this.userRepository.findAndCount({
       relations: ['role'],
       order: { id: 'ASC' },
+      skip,
+      take: limit,
     });
+
+    return { users, total };
   }
 
   async findById(id: number): Promise<User> {
@@ -95,8 +100,8 @@ export class UsersService {
     // Validate role if provided
     if (dto.roleId !== undefined) {
       if (dto.roleId === null) {
-        user.roleId = undefined;
-        user.role = undefined;
+        user.roleId = null as any;
+        user.role = null as any;
       } else {
         const role = await this.roleRepository.findOne({
           where: { id: dto.roleId },
@@ -105,6 +110,7 @@ export class UsersService {
           throw new BadRequestException(`Role with ID ${dto.roleId} not found`);
         }
         user.roleId = dto.roleId;
+        user.role = role;
       }
     }
 

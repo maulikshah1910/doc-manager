@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
   ForbiddenException,
+  Query,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -27,8 +28,14 @@ export class UsersController {
 
   @Get()
   @RequirePermissions('users.view')
-  async findAll() {
-    const users = await this.usersService.findAll();
+  async findAll(
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10',
+  ) {
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+
+    const { users, total } = await this.usersService.findAll(pageNum, limitNum);
 
     return {
       data: users.map((user) => ({
@@ -48,6 +55,12 @@ export class UsersController {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       })),
+      meta: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+      }
     };
   }
 

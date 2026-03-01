@@ -25,6 +25,9 @@ export default function RolesPage() {
     const [roles, setRoles] = useState<RoleData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
+    const [page, setPage] = useState(1);
+    const [limit, setLimit] = useState(10);
+    const [total, setTotal] = useState(0);
 
     const permissions = user?.permissions || [];
 
@@ -41,14 +44,17 @@ export default function RolesPage() {
         }
 
         loadRoles();
-    }, [authLoading, isAuthenticated, router]);
+    }, [authLoading, isAuthenticated, router, page, limit]);
 
     const loadRoles = async () => {
         try {
             setIsLoading(true);
             setError('');
-            const response = await apiClient.get<{ data: RoleData[] }>('/api/v1/roles');
+            const response = await apiClient.get<{ data: RoleData[], meta: { total: number } }>(`/api/v1/roles?page=${page}&limit=${limit}`);
             setRoles(response.data.data);
+            if (response.data.meta) {
+                setTotal(response.data.meta.total);
+            }
         } catch (err: any) {
             console.error('Failed to load roles:', err);
             const message = err.response?.data?.message || 'Failed to load roles';
@@ -69,6 +75,26 @@ export default function RolesPage() {
     if (!isAuthenticated) {
         return null;
     }
+
+    // Pagination logic
+    const totalPages = Math.ceil(total / limit);
+    const getPageNumbers = () => {
+        const pages = [];
+        if (totalPages <= 7) {
+            for (let i = 1; i <= totalPages; i++) {
+                pages.push(i);
+            }
+        } else {
+            if (page <= 4) {
+                pages.push(1, 2, 3, 4, 5, '...', totalPages);
+            } else if (page >= totalPages - 3) {
+                pages.push(1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+            } else {
+                pages.push(1, '...', page - 1, page, page + 1, '...', totalPages);
+            }
+        }
+        return pages;
+    };
 
     return (
         <DashboardLayout permissions={permissions}>
@@ -206,6 +232,74 @@ export default function RolesPage() {
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+                        )}
+
+                        {/* Pagination Controls */}
+                        {!isLoading && total > 0 && (
+                            <div className="flex flex-col sm:flex-row items-center justify-between mt-6 border-t border-gray-200 dark:border-gray-700 pt-4 gap-4">
+                                <div className="flex items-center">
+                                    <span className="text-sm text-gray-700 dark:text-gray-300 mr-2">Rows per page:</span>
+                                    <select
+                                        value={limit}
+                                        onChange={(e) => {
+                                            setLimit(Number(e.target.value));
+                                            setPage(1);
+                                        }}
+                                        className="border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-blue-500 focus:border-blue-500 py-1"
+                                    >
+                                        {[10, 25].map(option => (
+                                            <option key={option} value={option}>{option}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row items-center gap-4">
+                                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                                        Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
+                                    </span>
+
+                                    <nav className="flex items-center space-x-1" aria-label="Pagination">
+                                        <button
+                                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                                            disabled={page === 1}
+                                            className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                                            aria-label="Previous page"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                            </svg>
+                                        </button>
+
+                                        {getPageNumbers().map((pageNum, idx) => (
+                                            pageNum === '...' ? (
+                                                <span key={`ellipsis-${idx}`} className="px-3 py-1 text-gray-500 dark:text-gray-400">...</span>
+                                            ) : (
+                                                <button
+                                                    key={pageNum}
+                                                    onClick={() => setPage(pageNum as number)}
+                                                    className={`px-3 py-1 border rounded-md text-sm font-medium transition-colors ${page === pageNum
+                                                            ? 'border-blue-600 bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:border-blue-500 dark:text-blue-400'
+                                                            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                                                        }`}
+                                                >
+                                                    {pageNum}
+                                                </button>
+                                            )
+                                        ))}
+
+                                        <button
+                                            onClick={() => setPage(p => p + 1)}
+                                            disabled={page * limit >= total}
+                                            className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                                            aria-label="Next page"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                            </svg>
+                                        </button>
+                                    </nav>
+                                </div>
                             </div>
                         )}
                     </CardContent>

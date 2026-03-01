@@ -19,10 +19,15 @@ export class RolesService {
         private readonly permissionRepository: Repository<Permission>,
     ) { }
 
-    async findAll(): Promise<Role[]> {
-        return this.roleRepository.find({
+    async findAll(page: number = 1, limit: number = 10): Promise<{ roles: Role[], total: number }> {
+        const skip = (page - 1) * limit;
+        const [roles, total] = await this.roleRepository.findAndCount({
             order: { id: 'ASC' },
+            skip,
+            take: limit,
         });
+
+        return { roles, total };
     }
 
     async findAllPermissions(): Promise<Permission[]> {
