@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { AuthProviderWrapper } from './auth-provider-wrapper';
 
 export const metadata: Metadata = {
   title: 'Document Manager',
@@ -14,7 +15,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        {children}
+        <AuthProviderWrapper>
+          {children}
+        </AuthProviderWrapper>
       </body>
     </html>
   );

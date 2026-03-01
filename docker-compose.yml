@@ -68,6 +68,19 @@ services:
   #   networks:
   #     - doc-manager-network
 
+  # Mailpit for local email testing
+  mailpit:
+    image: axllent/mailpit
+    container_name: doc-manager-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    environment:
+      MP_MAX_MESSAGES: 500
+    networks:
+      - doc-manager-network
+
 networks:
   doc-manager-network:
     driver: bridge

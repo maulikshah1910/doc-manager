@@ -9,7 +9,11 @@
     "db:migrate:down": "./infra/scripts/migrate.sh down",
     "db:migrate:status": "./infra/scripts/migrate.sh status",
     "db:seed": "./infra/scripts/seed.sh",
-    "password:hash": "node infra/scripts/generate-password-hash.js"
+    "password:hash": "node infra/scripts/generate-password-hash.js",
+    "backend:dev": "cd apps/backend && npm run start:dev",
+    "backend:build": "cd apps/backend && npm run build",
+    "frontend:dev": "cd apps/frontend && npm run dev",
+    "frontend:build": "cd apps/frontend && npm run build"
   },
   "devDependencies": {
     "bcryptjs": "^2.4.3"

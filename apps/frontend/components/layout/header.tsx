@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useTheme } from '@/contexts/theme-context';
-import { logout } from '@/lib/auth';
+import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 
 interface HeaderProps {
@@ -11,6 +11,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   const { theme, toggleTheme } = useTheme();
+  const { logout } = useAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -29,16 +30,17 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 
   const handleLogout = async () => {
     await logout();
+    router.push('/');
   };
 
   const handleProfile = () => {
     setIsDropdownOpen(false);
-    router.push('/dashboard/profile');
+    router.push('/profile');
   };
 
   const handleChangePassword = () => {
     setIsDropdownOpen(false);
-    router.push('/dashboard/change-password');
+    router.push('/change-password');
   };
 
   return (

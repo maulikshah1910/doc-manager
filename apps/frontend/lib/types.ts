@@ -3,10 +3,15 @@
 export interface User {
   id: string;
   email: string;
-  roles: string[];
+  firstName: string;
+  lastName: string;
+  profileImage?: string;
+  role: {
+    id: string;
+    name: string;
+    displayName: string;
+  } | null;
   permissions: string[];
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface Role {
