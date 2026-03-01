@@ -8,14 +8,21 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../entities/user.entity';
+import { Role } from '../entities/role.entity';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { CreateUserDto } from './dto/create-user.dto';
+import { AdminUpdateUserDto } from './dto/admin-update-user.dto';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Role)
+    private readonly roleRepository: Repository<Role>,
+    private readonly mailService: MailService,
   ) { }
 
   async findAll(): Promise<User[]> {
@@ -36,6 +43,79 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  async createUser(dto: CreateUserDto): Promise<User> {
+    // Check for duplicate email
+    const existingUser = await this.userRepository.findOne({
+      where: { email: dto.email },
+    });
+
+    if (existingUser) {
+      throw new ConflictException('A user with this email already exists');
+    }
+
+    // Validate role if provided
+    if (dto.roleId) {
+      const role = await this.roleRepository.findOne({
+        where: { id: dto.roleId },
+      });
+      if (!role) {
+        throw new BadRequestException(`Role with ID ${dto.roleId} not found`);
+      }
+    }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(dto.password, salt);
+
+    const user = this.userRepository.create({
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      email: dto.email,
+      password: hashedPassword,
+      roleId: dto.roleId,
+      status: dto.status || 'active',
+    });
+
+    const savedUser = await this.userRepository.save(user);
+
+    // Reload with relations to get role info for email
+    const reloadedUser = await this.findById(savedUser.id);
+
+    // Send welcome email with plain and original password
+    await this.mailService.sendUserWelcome(reloadedUser, dto.password);
+
+    return reloadedUser;
+  }
+
+  async adminUpdateUser(id: number, dto: AdminUpdateUserDto): Promise<User> {
+    const user = await this.findById(id);
+
+    // Validate role if provided
+    if (dto.roleId !== undefined) {
+      if (dto.roleId === null) {
+        user.roleId = undefined;
+        user.role = undefined;
+      } else {
+        const role = await this.roleRepository.findOne({
+          where: { id: dto.roleId },
+        });
+        if (!role) {
+          throw new BadRequestException(`Role with ID ${dto.roleId} not found`);
+        }
+        user.roleId = dto.roleId;
+      }
+    }
+
+    if (dto.status !== undefined) {
+      user.status = dto.status;
+    }
+
+    await this.userRepository.save(user);
+
+    // Reload with relations
+    return this.findById(id);
   }
 
   async updateProfile(
@@ -105,4 +185,3 @@ export class UsersService {
     return this.findById(userId);
   }
 }
-

@@ -1,15 +1,21 @@
 import {
   Controller,
   Get,
+  Post,
   Put,
   Body,
+  Param,
+  ParseIntPipe,
   UseGuards,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { CreateUserDto } from './dto/create-user.dto';
+import { AdminUpdateUserDto } from './dto/admin-update-user.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
@@ -45,6 +51,7 @@ export class UsersController {
     };
   }
 
+  // NOTE: Static routes must come BEFORE :id to avoid being parsed as an ID
   @Get('profile')
   async getProfile(@CurrentUser() user: any) {
     const userProfile = await this.usersService.findById(user.id);
@@ -118,6 +125,91 @@ export class UsersController {
 
     return {
       message: 'Password changed successfully',
+    };
+  }
+
+  @Get(':id')
+  @RequirePermissions('users.view')
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    const user = await this.usersService.findById(id);
+
+    return {
+      data: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        profileImage: user.profileImage,
+        status: user.status,
+        role: user.role
+          ? {
+            id: user.role.id,
+            name: user.role.name,
+            displayName: user.role.displayName,
+          }
+          : null,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+    };
+  }
+
+  @Post()
+  @RequirePermissions('users.create')
+  @HttpCode(HttpStatus.CREATED)
+  async create(@Body() createUserDto: CreateUserDto) {
+    const user = await this.usersService.createUser(createUserDto);
+
+    return {
+      data: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        status: user.status,
+        role: user.role
+          ? {
+            id: user.role.id,
+            name: user.role.name,
+            displayName: user.role.displayName,
+          }
+          : null,
+      },
+      message: 'User created successfully',
+    };
+  }
+
+  @Put(':id')
+  @RequirePermissions('users.edit')
+  @HttpCode(HttpStatus.OK)
+  async adminUpdate(
+    @CurrentUser() currentUser: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() adminUpdateUserDto: AdminUpdateUserDto,
+  ) {
+    // Prevent users from editing their own role/status
+    if (Number(currentUser.id) === id) {
+      throw new ForbiddenException('You cannot modify your own role or status');
+    }
+
+    const user = await this.usersService.adminUpdateUser(id, adminUpdateUserDto);
+
+    return {
+      data: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        status: user.status,
+        role: user.role
+          ? {
+            id: user.role.id,
+            name: user.role.name,
+            displayName: user.role.displayName,
+          }
+          : null,
+      },
+      message: 'User updated successfully',
     };
   }
 }
