@@ -33,6 +33,8 @@ export class UsersService {
     sortOrder: 'ASC' | 'DESC' = 'DESC',
     nameFilter: string = '',
     emailFilter: string = '',
+    roleFilter: string = '',
+    statusFilter: string = '',
   ): Promise<{ users: User[], total: number }> {
     const skip = (page - 1) * limit;
 
@@ -65,13 +67,20 @@ export class UsersService {
       qb.andWhere('user.email LIKE :emailParam', { emailParam: `%${emailFilter}%` });
     }
 
+    // Apply strict column filter for Role ID
+    if (roleFilter) {
+      qb.andWhere('user.roleId = :roleFilter', { roleFilter: parseInt(roleFilter, 10) });
+    }
+
+    // Apply strict column filter for Status
+    if (statusFilter) {
+      qb.andWhere('user.status = :statusFilter', { statusFilter });
+    }
+
     try {
-      console.log("SQL:", qb.getSql());
-      console.log("PARAMS:", qb.getParameters());
       const [users, total] = await qb.getManyAndCount();
       return { users, total };
     } catch (err) {
-      console.error("USERS FINDALL ERROR:", err);
       throw err;
     }
   }

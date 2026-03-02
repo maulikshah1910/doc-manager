@@ -36,6 +36,8 @@ export class UsersController {
     @Query('sortOrder') sortOrder: string = 'desc',
     @Query('nameFilter') nameFilter: string = '',
     @Query('emailFilter') emailFilter: string = '',
+    @Query('roleFilter') roleFilter: string = '',
+    @Query('statusFilter') statusFilter: string = '',
   ) {
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
@@ -49,6 +51,8 @@ export class UsersController {
       cleanSortOrder,
       nameFilter,
       emailFilter,
+      roleFilter,
+      statusFilter,
     );
 
     return {

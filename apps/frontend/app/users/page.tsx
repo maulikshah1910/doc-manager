@@ -48,6 +48,12 @@ export default function UsersPage() {
     const [debouncedNameFilter, setDebouncedNameFilter] = useState('');
     const [emailFilter, setEmailFilter] = useState('');
     const [debouncedEmailFilter, setDebouncedEmailFilter] = useState('');
+    const [roleFilter, setRoleFilter] = useState('');
+    const [debouncedRoleFilter, setDebouncedRoleFilter] = useState('');
+    const [statusFilter, setStatusFilter] = useState('');
+    const [debouncedStatusFilter, setDebouncedStatusFilter] = useState('');
+
+    const [availableRoles, setAvailableRoles] = useState<{ id: string, name: string, displayName: string }[]>([]);
 
     const permissions = user?.permissions || [];
 
@@ -61,10 +67,26 @@ export default function UsersPage() {
             setDebouncedSearch(search);
             setDebouncedNameFilter(nameFilter);
             setDebouncedEmailFilter(emailFilter);
+            setDebouncedRoleFilter(roleFilter);
+            setDebouncedStatusFilter(statusFilter);
             setPage(1); // Reset to page 1 on new search or filter
         }, 500);
         return () => clearTimeout(timer);
-    }, [search, nameFilter, emailFilter]);
+    }, [search, nameFilter, emailFilter, roleFilter, statusFilter]);
+
+    // Initial load for roles dropdown
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        const fetchRoles = async () => {
+            try {
+                const res = await apiClient.get('/api/v1/roles');
+                setAvailableRoles(res.data.data);
+            } catch (err) {
+                console.error("Failed to load roles for filter:", err);
+            }
+        };
+        fetchRoles();
+    }, [isAuthenticated]);
 
     useEffect(() => {
         if (authLoading) return;
@@ -75,7 +97,7 @@ export default function UsersPage() {
         }
 
         loadUsers();
-    }, [authLoading, isAuthenticated, router, page, limit, debouncedSearch, sortBy, sortOrder, debouncedNameFilter, debouncedEmailFilter]);
+    }, [authLoading, isAuthenticated, router, page, limit, debouncedSearch, sortBy, sortOrder, debouncedNameFilter, debouncedEmailFilter, debouncedRoleFilter, debouncedStatusFilter]);
 
     const loadUsers = async () => {
         try {
@@ -89,6 +111,8 @@ export default function UsersPage() {
                 sortOrder,
                 nameFilter: debouncedNameFilter,
                 emailFilter: debouncedEmailFilter,
+                roleFilter: debouncedRoleFilter,
+                statusFilter: debouncedStatusFilter,
             });
             const response = await apiClient.get<{ data: UserData[], meta: { total: number } }>(`/api/v1/users?${params.toString()}`);
             setUsers(response.data.data);
@@ -257,10 +281,35 @@ export default function UsersPage() {
                                                 </div>
                                             </th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                Role
+                                                <div className="mb-2">Role</div>
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                    <select
+                                                        className="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white bg-white dark:bg-gray-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-normal normal-case"
+                                                        value={roleFilter}
+                                                        onChange={(e) => setRoleFilter(e.target.value)}
+                                                    >
+                                                        <option value="">All Roles</option>
+                                                        {availableRoles.map(role => (
+                                                            <option key={role.id} value={role.id}>{role.displayName}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
                                             </th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                Status
+                                                <div className="mb-2">Status</div>
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                    <select
+                                                        className="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white bg-white dark:bg-gray-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-normal normal-case"
+                                                        value={statusFilter}
+                                                        onChange={(e) => setStatusFilter(e.target.value)}
+                                                    >
+                                                        <option value="">All Statuses</option>
+                                                        <option value="active">Active</option>
+                                                        <option value="inactive">Inactive</option>
+                                                        <option value="suspended">Suspended</option>
+                                                        <option value="pending">Pending</option>
+                                                    </select>
+                                                </div>
                                             </th>
                                             {hasPermission('users.edit') && (
                                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -288,12 +337,14 @@ export default function UsersPage() {
                                                     </svg>
                                                     <p className="text-lg font-medium text-gray-900 dark:text-white">No users found</p>
                                                     <p className="mt-1 mb-6 text-sm">Get started by creating a new user or adjusting your filters to find existing users.</p>
-                                                    {(search || nameFilter || emailFilter) && (
+                                                    {(search || nameFilter || emailFilter || roleFilter || statusFilter) && (
                                                         <button
                                                             onClick={() => {
                                                                 setSearch('');
                                                                 setNameFilter('');
                                                                 setEmailFilter('');
+                                                                setRoleFilter('');
+                                                                setStatusFilter('');
                                                             }}
                                                             className="inline-flex items-center justify-center px-4 py-2 border border-blue-600 rounded-md shadow-sm text-sm font-medium text-blue-600 bg-transparent hover:bg-blue-50 dark:hover:bg-blue-900/30 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
                                                         >
