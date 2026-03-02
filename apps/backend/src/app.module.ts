@@ -13,6 +13,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
 import { getDatabaseConfig } from './config/database.config';
 import { MailModule } from './mail/mail.module';
 
+import { DocumentsModule } from './documents/documents.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -33,6 +35,7 @@ import { MailModule } from './mail/mail.module';
     UsersModule,
     RolesModule,
     MailModule,
+    DocumentsModule,
   ],
   controllers: [AppController],
   providers: [

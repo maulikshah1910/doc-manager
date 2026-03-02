@@ -10,3 +10,5 @@ export type { CardProps } from './card';
 
 export { Alert } from './alert';
 export type { AlertProps } from './alert';
+
+export { UnauthorizedAccess } from './unauthorized-access';
